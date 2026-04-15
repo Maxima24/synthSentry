@@ -1,6 +1,6 @@
 export function HeroVideoPreview() {
   return (
-    <div className="animate-fade-in-up relative aspect-[16/9] w-full overflow-hidden rounded-card border border-white/40 shadow-[0_40px_140px_-20px_rgba(0,0,0,0.65),0_0_0_1px_rgb(255_255_255/0.04)] [animation-delay:420ms]">
+    <div className="animate-fade-in-up relative aspect-[16/9] w-full overflow-hidden rounded-card border border-white/40 shadow-[0_40px_140px_-20px_rgba(0,0,0,0.65),0_0_0_1px_rgb(255_255_255/0.04)] [animation-delay:480ms]">
       <div className="absolute inset-0 bg-surface-marketing" />
 
       <div className="bg-retro-grid absolute inset-0 opacity-90" />

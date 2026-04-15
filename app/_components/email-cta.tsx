@@ -3,7 +3,7 @@
 export function EmailCTA() {
   return (
     <form
-      className="animate-fade-in-up mt-7 flex w-full max-w-md items-stretch gap-1.5 rounded-panel bg-white p-1.5 shadow-[0_12px_40px_-12px_rgba(0,0,0,0.45)] sm:mt-9 [animation-delay:240ms]"
+      className="animate-fade-in-up mt-7 flex w-full max-w-md items-stretch gap-1.5 rounded-panel bg-white p-1.5 shadow-[0_12px_40px_-12px_rgba(0,0,0,0.45)] sm:mt-9 [animation-delay:280ms]"
       onSubmit={(e) => e.preventDefault()}
     >
       <label htmlFor="hero-email" className="sr-only">
