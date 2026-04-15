@@ -12,20 +12,20 @@ export default function Home() {
     <main>
       <Nav />
 
-      <section className="relative isolate m-3 flex h-[calc(100svh-3rem)] min-h-[760px] flex-col overflow-hidden rounded-card bg-surface-marketing text-white sm:m-4 sm:h-[calc(100svh-4rem)]">
+      <section className="relative isolate m-3 flex min-h-[620px] flex-col overflow-hidden rounded-card bg-surface-marketing text-white sm:m-4 sm:h-[calc(100svh-4rem)] sm:min-h-[760px]">
         <BackgroundLayers />
 
-        <div className="relative z-10 mx-auto flex w-full max-w-5xl flex-col items-center px-6 pt-32 sm:pt-36">
+        <div className="relative z-10 mx-auto flex w-full max-w-5xl flex-col items-center px-5 pt-20 sm:px-6 sm:pt-36">
           <TrustBadge />
 
-          <h1 className="animate-fade-in-up mt-7 max-w-4xl text-center font-display text-5xl font-semibold leading-[1.04] tracking-tight sm:text-6xl md:text-7xl">
+          <h1 className="animate-fade-in-up mt-5 max-w-4xl text-balance text-center font-display text-[2.25rem] font-semibold leading-[1.05] tracking-tight sm:mt-7 sm:text-5xl md:text-6xl lg:text-7xl">
             Know your real portfolio risk.{" "}
             <span className="text-primary [text-shadow:0_0_40px_color-mix(in_oklab,var(--color-primary)_35%,transparent)]">
               In plain English.
             </span>
           </h1>
 
-          <p className="animate-fade-in-up mt-6 max-w-2xl text-center font-sans text-lg leading-relaxed text-white/85 [animation-delay:120ms]">
+          <p className="animate-fade-in-up mt-4 max-w-2xl text-balance text-center font-sans text-[15px] leading-relaxed text-white/85 sm:mt-6 sm:text-lg [animation-delay:120ms]">
             {HERO_SUBHEAD}
           </p>
 
@@ -33,14 +33,14 @@ export default function Home() {
 
           <a
             href="#how-it-works"
-            className="animate-fade-in-up mt-5 rounded-md text-sm font-medium text-white/80 transition-colors hover:text-primary focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-primary [animation-delay:340ms]"
+            className="animate-fade-in-up mt-4 rounded-md text-xs font-medium text-white/80 transition-colors hover:text-primary focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-primary sm:mt-5 sm:text-sm [animation-delay:340ms]"
           >
             See how it works ↓
           </a>
         </div>
       </section>
 
-      <div className="relative z-10 mx-auto -mt-[clamp(4rem,11vw,13rem)] w-[min(100%-2rem,72rem)] px-4 sm:px-6">
+      <div className="relative z-10 mx-auto -mt-[clamp(5rem,11vw,13rem)] w-[min(100%-2rem,72rem)] px-3 sm:px-6">
         <HeroVideoPreview />
       </div>
 
@@ -51,12 +51,12 @@ export default function Home() {
 
 function TrustBadge() {
   return (
-    <div className="animate-fade-in-up inline-flex items-center gap-2 rounded-full border border-white/40 bg-white/[0.07] px-3.5 py-1.5 backdrop-blur-md">
+    <div className="animate-fade-in-up inline-flex items-center gap-2 rounded-full border border-white/40 bg-white/[0.07] px-3 py-1.5 backdrop-blur-md sm:px-3.5">
       <span className="relative inline-flex size-1.5">
         <span className="animate-pulse-soft absolute inset-0 rounded-full bg-primary/70" />
         <span className="relative size-1.5 rounded-full bg-primary" />
       </span>
-      <span className="text-xs font-medium tracking-wide text-white/80">
+      <span className="text-[10px] font-medium tracking-wide text-white/85 sm:text-xs">
         Live · Powered by Bayse API + Gemini
       </span>
     </div>

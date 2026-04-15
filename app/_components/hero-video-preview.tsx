@@ -9,9 +9,9 @@ export function HeroVideoPreview() {
 
       <div className="absolute inset-0 [background:radial-gradient(ellipse_at_center,transparent_55%,rgba(0,0,0,0.5)_100%)]" />
 
-      <div className="absolute inset-0 flex flex-col items-center justify-center gap-5">
+      <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 sm:gap-5">
         <PlayButton />
-        <span className="text-sm font-medium tracking-wide text-white/85">
+        <span className="text-xs font-medium tracking-wide text-white/85 sm:text-sm">
           Watch the 2-minute demo
         </span>
       </div>
@@ -24,7 +24,7 @@ function PlayButton() {
     <button
       type="button"
       aria-label="Play product demo video"
-      className="group relative inline-flex size-20 items-center justify-center rounded-full bg-primary text-primary-foreground transition-transform duration-300 hover:scale-105 focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-primary"
+      className="group relative inline-flex size-14 items-center justify-center rounded-full bg-primary text-primary-foreground transition-transform duration-300 hover:scale-105 focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-primary sm:size-20"
     >
       <span
         aria-hidden
@@ -34,7 +34,7 @@ function PlayButton() {
         viewBox="0 0 24 24"
         fill="currentColor"
         aria-hidden
-        className="size-7 translate-x-0.5"
+        className="size-5 translate-x-0.5 sm:size-7"
       >
         <path d="M8 5v14l11-7z" />
       </svg>

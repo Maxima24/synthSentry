@@ -3,7 +3,7 @@
 export function EmailCTA() {
   return (
     <form
-      className="animate-fade-in-up mt-9 flex w-full max-w-md items-stretch gap-1.5 rounded-panel bg-white p-1.5 shadow-[0_12px_40px_-12px_rgba(0,0,0,0.45)] [animation-delay:240ms]"
+      className="animate-fade-in-up mt-7 flex w-full max-w-md items-stretch gap-1.5 rounded-panel bg-white p-1.5 shadow-[0_12px_40px_-12px_rgba(0,0,0,0.45)] sm:mt-9 [animation-delay:240ms]"
       onSubmit={(e) => e.preventDefault()}
     >
       <label htmlFor="hero-email" className="sr-only">
@@ -13,14 +13,15 @@ export function EmailCTA() {
         id="hero-email"
         type="email"
         required
-        placeholder="Enter email address"
-        className="min-w-0 flex-1 rounded-lg bg-transparent px-4 text-sm text-foreground placeholder:text-foreground/45 focus:outline-none focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary"
+        placeholder="Enter your email"
+        className="min-w-0 flex-1 rounded-lg bg-transparent px-3 text-sm text-foreground placeholder:text-foreground/45 focus:outline-none focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary sm:px-4"
       />
       <button
         type="submit"
-        className="group inline-flex shrink-0 items-center gap-2.5 rounded-xl bg-primary px-5 py-2.5 text-sm font-semibold text-primary-foreground transition-shadow duration-300 hover:shadow-[0_0_36px_color-mix(in_oklab,var(--color-primary)_60%,transparent)] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary-foreground"
+        className="group inline-flex shrink-0 items-center gap-2 rounded-xl bg-primary px-3.5 py-2.5 text-sm font-semibold text-primary-foreground transition-shadow duration-300 hover:shadow-[0_0_36px_color-mix(in_oklab,var(--color-primary)_60%,transparent)] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary-foreground sm:gap-2.5 sm:px-5"
       >
-        Request a demo
+        <span className="hidden sm:inline">Request a demo</span>
+        <span className="sm:hidden">Demo</span>
         <ArrowBadge />
       </button>
     </form>
