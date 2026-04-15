@@ -20,21 +20,21 @@ export function DataFlow() {
         sub="Live market data"
         hiddenOnMobile
       />
-      <Beam delay={0.6} hiddenOnMobile />
+      <Beam delay={0.9} hiddenOnMobile />
       <FlowNode
         icon={Brain02Icon}
         label="Gemini AI"
         sub="Risk + reasoning"
         featured
       />
-      <Beam delay={1.2} />
+      <Beam delay={2.1} />
       <FlowNode
         icon={ChartEvaluationIcon}
         label="Risk Score"
         sub="0–100 + rationale"
         hiddenOnMobile
       />
-      <Beam delay={1.8} hiddenOnMobile />
+      <Beam delay={3.2} hiddenOnMobile />
       <FlowNode icon={BellDotIcon} label="You" sub="Alerted in time" />
     </div>
   );
