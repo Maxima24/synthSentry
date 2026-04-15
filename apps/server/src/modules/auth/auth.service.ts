@@ -6,7 +6,6 @@ import { JwtService } from '@nestjs/jwt';
 import { ConfigService } from '@nestjs/config';
 import { LoginDto } from './dto/login.dto';
 import { LoggerService } from 'src/logger/logger.service';
-import { Role } from '@prisma/client';
 
 @Injectable()
 export class AuthService {
@@ -69,7 +68,6 @@ export class AuthService {
            })
            this.logger.logAuthEvent("Register",newUser?.id,{
             email:newUser.email,
-            phoneNumber:newUser.phoneNo
            })
 
            return {

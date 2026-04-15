@@ -10,7 +10,6 @@ async function bootstrap() {
   });
   app.enableCors({origin:"*"})
   const logger = app.get(LoggerService)
-  app.use(logger)
   app.useGlobalPipes( new ValidationPipe({
       whitelist:true,
       forbidNonWhitelisted:true,
