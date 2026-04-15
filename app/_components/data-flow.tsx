@@ -3,7 +3,7 @@ import {
   Activity03Icon,
   BellDotIcon,
   Brain02Icon,
-  SparklesIcon,
+  ChartEvaluationIcon,
   Wallet01Icon,
 } from "@hugeicons/core-free-icons";
 
@@ -29,7 +29,7 @@ export function DataFlow() {
       />
       <Beam delay={1.2} />
       <FlowNode
-        icon={SparklesIcon}
+        icon={ChartEvaluationIcon}
         label="Risk Score"
         sub="0–100 + rationale"
         hiddenOnMobile
