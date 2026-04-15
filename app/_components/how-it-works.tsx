@@ -4,6 +4,7 @@ import {
   Brain02Icon,
   Wallet01Icon,
 } from "@hugeicons/core-free-icons";
+import { DataFlow } from "./data-flow";
 import { Reveal } from "./reveal";
 
 const STEPS = [
@@ -54,6 +55,10 @@ export function HowItWorks() {
           <p className="mx-auto mt-5 max-w-2xl text-balance text-center font-sans text-base leading-relaxed text-white/75 sm:text-lg">
             From a fresh portfolio to a risk score with explanation, you&rsquo;re set up in under five minutes.
           </p>
+        </Reveal>
+
+        <Reveal delay={200}>
+          <DataFlow />
         </Reveal>
 
         <div className="mt-14 grid gap-4 sm:mt-16 sm:grid-cols-3 sm:gap-5">
