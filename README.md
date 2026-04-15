@@ -1,159 +1,149 @@
-# Turborepo starter
+# synthsentry
 
-This Turborepo starter is maintained by the Turborepo core team.
+Monorepo for the SynthSentry web app, deployed to Google Cloud Run through Google Cloud Deploy.
 
-## Using this example
+This repository is now configured for:
 
-Run the following command:
+- container build for apps/web
+- dev and prod Cloud Run services
+- Cloud Deploy delivery pipeline
+- Cloud Build CI pipeline that creates a Cloud Deploy release per commit
 
-```sh
-npx create-turbo@latest
+## Project values
+
+- Project name: synthsentry
+- Project ID: synthsentry
+- Project number: 1078562117787
+- Region: us-central1
+
+## Files used for deployment
+
+- clouddeploy.yaml: Cloud Deploy pipeline and targets
+- skaffold.yaml: render profiles and image placeholder mapping
+- run-service-dev.yaml: dev Cloud Run service manifest
+- run-service-prod.yaml: prod Cloud Run service manifest
+- cloudbuild.yaml: CI pipeline for build, push, and release creation
+- apps/web/Dockerfile: production image build for Next.js app
+
+## One-time setup in GCP
+
+Run from repository root.
+
+```bash
+gcloud config set project synthsentry
+
+gcloud services enable \
+	run.googleapis.com \
+	clouddeploy.googleapis.com \
+	cloudbuild.googleapis.com \
+	artifactregistry.googleapis.com
+
+gcloud artifacts repositories create synthsentry \
+	--repository-format=docker \
+	--location=us-central1 \
+	--description="SynthSentry container images"
 ```
 
-## What's inside?
+If the Artifact Registry repository already exists, the create command will fail safely; continue.
 
-This Turborepo includes the following packages/apps:
+## IAM required for CI/CD
 
-### Apps and Packages
+Grant Cloud Build permission to push images and create releases.
 
-- `docs`: a [Next.js](https://nextjs.org/) app
-- `web`: another [Next.js](https://nextjs.org/) app
-- `@repo/ui`: a stub React component library shared by both `web` and `docs` applications
-- `@repo/eslint-config`: `eslint` configurations (includes `eslint-config-next` and `eslint-config-prettier`)
-- `@repo/typescript-config`: `tsconfig.json`s used throughout the monorepo
+```bash
+PROJECT_ID=synthsentry
+PROJECT_NUMBER=1078562117787
 
-Each package/app is 100% [TypeScript](https://www.typescriptlang.org/).
+gcloud projects add-iam-policy-binding $PROJECT_ID \
+	--member="serviceAccount:${PROJECT_NUMBER}@cloudbuild.gserviceaccount.com" \
+	--role="roles/artifactregistry.writer"
 
-### Utilities
-
-This Turborepo has some additional tools already setup for you:
-
-- [TypeScript](https://www.typescriptlang.org/) for static type checking
-- [ESLint](https://eslint.org/) for code linting
-- [Prettier](https://prettier.io) for code formatting
-
-### Build
-
-To build all apps and packages, run the following command:
-
-With [global `turbo`](https://turborepo.dev/docs/getting-started/installation#global-installation) installed (recommended):
-
-```sh
-cd my-turborepo
-turbo build
+gcloud projects add-iam-policy-binding $PROJECT_ID \
+	--member="serviceAccount:${PROJECT_NUMBER}@cloudbuild.gserviceaccount.com" \
+	--role="roles/clouddeploy.releaser"
 ```
 
-Without global `turbo`, use your package manager:
+Grant Cloud Deploy service agent permission to deploy to Cloud Run.
 
-```sh
-cd my-turborepo
-npx turbo build
-pnpm dlx turbo build
-pnpm exec turbo build
+```bash
+gcloud projects add-iam-policy-binding $PROJECT_ID \
+	--member="serviceAccount:service-${PROJECT_NUMBER}@gcp-sa-clouddeploy.iam.gserviceaccount.com" \
+	--role="roles/run.admin"
+
+gcloud projects add-iam-policy-binding $PROJECT_ID \
+	--member="serviceAccount:service-${PROJECT_NUMBER}@gcp-sa-clouddeploy.iam.gserviceaccount.com" \
+	--role="roles/iam.serviceAccountUser"
 ```
 
-You can build a specific package by using a [filter](https://turborepo.dev/docs/crafting-your-repository/running-tasks#using-filters):
+## Create delivery pipeline and targets
 
-With [global `turbo`](https://turborepo.dev/docs/getting-started/installation#global-installation) installed:
-
-```sh
-turbo build --filter=docs
+```bash
+gcloud deploy apply \
+	--file=clouddeploy.yaml \
+	--region=us-central1 \
+	--project=synthsentry
 ```
 
-Without global `turbo`:
+## Test a manual release once
 
-```sh
-npx turbo build --filter=docs
-pnpm exec turbo build --filter=docs
-pnpm exec turbo build --filter=docs
+This validates the whole flow before wiring automatic triggers.
+
+```bash
+gcloud builds submit \
+	--config=cloudbuild.yaml \
+	--project=synthsentry
 ```
 
-### Develop
+After build success:
 
-To develop all apps and packages, run the following command:
+- a release is created in Cloud Deploy
+- rollout to target synthsentry-dev starts
 
-With [global `turbo`](https://turborepo.dev/docs/getting-started/installation#global-installation) installed (recommended):
+Promote to production when ready:
 
-```sh
-cd my-turborepo
-turbo dev
+```bash
+gcloud deploy releases promote \
+	--delivery-pipeline=synthsentry-pipeline \
+	--region=us-central1 \
+	--project=synthsentry \
+	--to-target=synthsentry-prod \
+	--release=<release-name>
 ```
 
-Without global `turbo`, use your package manager:
+## Wire CI/CD trigger (recommended)
 
-```sh
-cd my-turborepo
-npx turbo dev
-pnpm exec turbo dev
-pnpm exec turbo dev
+Create a Cloud Build trigger connected to your Git repository:
+
+- Trigger type: push to branch
+- Branch: main
+- Config file: cloudbuild.yaml
+- Region: global or us-central1 (matching your org policy)
+
+Equivalent CLI example:
+
+```bash
+gcloud beta builds triggers create github \
+	--name="synthsentry-main" \
+	--repo-name="synthSentry" \
+	--repo-owner="<github-owner>" \
+	--branch-pattern="^main$" \
+	--build-config="cloudbuild.yaml" \
+	--project="synthsentry"
 ```
 
-You can develop a specific package by using a [filter](https://turborepo.dev/docs/crafting-your-repository/running-tasks#using-filters):
+On every push to main:
 
-With [global `turbo`](https://turborepo.dev/docs/getting-started/installation#global-installation) installed:
+1. image is built from apps/web/Dockerfile
+2. image is pushed to Artifact Registry
+3. Cloud Deploy release is created
+4. dev rollout starts automatically
+5. prod promotion is controlled by you
 
-```sh
-turbo dev --filter=web
+## Useful verification commands
+
+```bash
+gcloud deploy delivery-pipelines list --region=us-central1 --project=synthsentry
+gcloud deploy targets list --region=us-central1 --project=synthsentry
+gcloud deploy releases list --delivery-pipeline=synthsentry-pipeline --region=us-central1 --project=synthsentry
+gcloud run services list --region=us-central1 --project=synthsentry
 ```
-
-Without global `turbo`:
-
-```sh
-npx turbo dev --filter=web
-pnpm exec turbo dev --filter=web
-pnpm exec turbo dev --filter=web
-```
-
-### Remote Caching
-
-> [!TIP]
-> Vercel Remote Cache is free for all plans. Get started today at [vercel.com](https://vercel.com/signup?utm_source=remote-cache-sdk&utm_campaign=free_remote_cache).
-
-Turborepo can use a technique known as [Remote Caching](https://turborepo.dev/docs/core-concepts/remote-caching) to share cache artifacts across machines, enabling you to share build caches with your team and CI/CD pipelines.
-
-By default, Turborepo will cache locally. To enable Remote Caching you will need an account with Vercel. If you don't have an account you can [create one](https://vercel.com/signup?utm_source=turborepo-examples), then enter the following commands:
-
-With [global `turbo`](https://turborepo.dev/docs/getting-started/installation#global-installation) installed (recommended):
-
-```sh
-cd my-turborepo
-turbo login
-```
-
-Without global `turbo`, use your package manager:
-
-```sh
-cd my-turborepo
-npx turbo login
-pnpm exec turbo login
-pnpm exec turbo login
-```
-
-This will authenticate the Turborepo CLI with your [Vercel account](https://vercel.com/docs/concepts/personal-accounts/overview).
-
-Next, you can link your Turborepo to your Remote Cache by running the following command from the root of your Turborepo:
-
-With [global `turbo`](https://turborepo.dev/docs/getting-started/installation#global-installation) installed:
-
-```sh
-turbo link
-```
-
-Without global `turbo`:
-
-```sh
-npx turbo link
-pnpm exec turbo link
-pnpm exec turbo link
-```
-
-## Useful Links
-
-Learn more about the power of Turborepo:
-
-- [Tasks](https://turborepo.dev/docs/crafting-your-repository/running-tasks)
-- [Caching](https://turborepo.dev/docs/crafting-your-repository/caching)
-- [Remote Caching](https://turborepo.dev/docs/core-concepts/remote-caching)
-- [Filtering](https://turborepo.dev/docs/crafting-your-repository/running-tasks#using-filters)
-- [Configuration Options](https://turborepo.dev/docs/reference/configuration)
-- [CLI Usage](https://turborepo.dev/docs/reference/command-line-reference)

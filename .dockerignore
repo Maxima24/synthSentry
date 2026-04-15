@@ -1,0 +1,10 @@
+.git
+.gitignore
+**/.DS_Store
+**/node_modules
+**/.next
+**/.turbo
+**/dist
+**/coverage
+**/.env*
+README.md

@@ -1,0 +1,29 @@
+apiVersion: deploy.cloud.google.com/v1
+kind: DeliveryPipeline
+metadata:
+  name: synthsentry-pipeline
+description: SynthSentry Cloud Run delivery pipeline
+serialPipeline:
+  stages:
+  - targetId: synthsentry-dev
+    profiles: [dev]
+  - targetId: synthsentry-prod
+    profiles: [prod]
+---
+
+apiVersion: deploy.cloud.google.com/v1
+kind: Target
+metadata:
+  name: synthsentry-dev
+description: SynthSentry Cloud Run development service
+run:
+  location: projects/synthsentry/locations/us-central1
+---
+
+apiVersion: deploy.cloud.google.com/v1
+kind: Target
+metadata:
+  name: synthsentry-prod
+description: SynthSentry Cloud Run production service
+run:
+  location: projects/synthsentry/locations/us-central1

@@ -1,0 +1,40 @@
+substitutions:
+  _REGION: us-central1
+  _AR_REPO: synthsentry
+  _IMAGE_NAME: synthsentry-web
+  _DELIVERY_PIPELINE: synthsentry-pipeline
+  _DEPLOY_REGION: us-central1
+
+steps:
+  - name: gcr.io/cloud-builders/docker
+    id: build-image
+    args:
+      - build
+      - --file
+      - apps/web/Dockerfile
+      - --tag
+      - ${_REGION}-docker.pkg.dev/$PROJECT_ID/${_AR_REPO}/${_IMAGE_NAME}:$BUILD_ID
+      - .
+
+  - name: gcr.io/cloud-builders/docker
+    id: push-image
+    args:
+      - push
+      - ${_REGION}-docker.pkg.dev/$PROJECT_ID/${_AR_REPO}/${_IMAGE_NAME}:$BUILD_ID
+
+  - name: gcr.io/google.com/cloudsdktool/cloud-sdk
+    id: create-release
+    entrypoint: bash
+    args:
+      - -c
+      - |
+        REL_ID="rel-$(echo "$BUILD_ID" | tr -d '-' | cut -c1-12)"
+        gcloud deploy releases create "$$REL_ID" \
+          --delivery-pipeline=${_DELIVERY_PIPELINE} \
+          --region=${_DEPLOY_REGION} \
+          --skaffold-file=skaffold.yaml \
+          --images=synthsentry-web=${_REGION}-docker.pkg.dev/$PROJECT_ID/${_AR_REPO}/${_IMAGE_NAME}:$BUILD_ID \
+          --source=.
+
+options:
+  logging: CLOUD_LOGGING_ONLY

@@ -1,0 +1,18 @@
+apiVersion: skaffold/v4beta7
+kind: Config
+metadata: 
+  name: synthsentry-delivery
+build:
+  artifacts:
+    - image: synthsentry-web
+profiles:
+- name: dev
+  manifests:
+    rawYaml:
+      - run-service-dev.yaml
+- name: prod
+  manifests:
+    rawYaml:
+      - run-service-prod.yaml
+deploy:
+  cloudrun: {}
