@@ -48,8 +48,8 @@ body {
 }
 
 @keyframes pulse-soft {
-  0%, 100% { opacity: 1; }
-  50%      { opacity: 0.4; }
+  0%, 100% { opacity: 0.78; }
+  50%      { opacity: 0.52; }
 }
 
 @keyframes marquee {
@@ -58,14 +58,14 @@ body {
 }
 
 @keyframes beam-flow {
-  0%   { left: -30%; opacity: 0; }
-  15%  { opacity: 1; }
-  85%  { opacity: 1; }
+  0%   { left: -32%; opacity: 0; }
+  18%  { opacity: 0.78; }
+  82%  { opacity: 0.78; }
   100% { left: 100%; opacity: 0; }
 }
 
 .animate-beam-flow {
-  animation: beam-flow 2.4s linear infinite;
+  animation: beam-flow 3.6s cubic-bezier(0.4, 0, 0.2, 1) infinite;
 }
 
 .animate-marquee {
@@ -79,7 +79,7 @@ body {
 }
 
 .animate-pulse-soft {
-  animation: pulse-soft 2.4s ease-in-out infinite;
+  animation: pulse-soft 3.8s ease-in-out infinite;
 }
 
 /* Scroll-triggered reveal — IntersectionObserver toggles `reveal-in` */
