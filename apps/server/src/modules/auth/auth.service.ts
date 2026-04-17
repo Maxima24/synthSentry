@@ -4,7 +4,7 @@ import { SignupDto } from './dto/buyer.dto';
 import * as bcrypt from "bcrypt"
 import { JwtService } from '@nestjs/jwt';
 import { ConfigService } from '@nestjs/config';
-import { LoginDto } from './dto/login.dto';
+import { JwtPayload, LoginDto } from './dto/login.dto';
 import { LoggerService } from 'src/logger/logger.service';
 
 @Injectable()
@@ -58,12 +58,12 @@ export class AuthService {
            })
         
         
-           const payload = {
-            email: newUser.email, id:newUser.id,role:newUser.role
+           const payload:JwtPayload = {
+            email: newUser.email,id:newUser.id,role:newUser.role
            }
            const accessToken = this.jwt.sign(payload)
            const refreshToken = this.jwt.sign(payload,{
-            secret:this.configService.get("JWT_SECRET")!,
+            secret:this.configService.get<string>("JWT_SECRET"),
             expiresIn:  "7d"
            })
            this.logger.logAuthEvent("Register",newUser?.id,{
@@ -149,7 +149,7 @@ export class AuthService {
 
        }
     
-   const payload = {
+   const payload:JwtPayload = {
             email: user.email, id:user.id,role:user.role
            }
            const accessToken = this.jwt.sign(payload)
@@ -168,6 +168,76 @@ export class AuthService {
                 refreshToken
             }
            }
+    }
+
+    /**
+     * Refresh access token using a valid refresh token
+     * PRD: Auth enhancement - token refresh mechanism
+     */
+    public async refreshToken(refreshToken: string): Promise<{
+        message: string;
+        data: {
+            accessToken: string;
+            refreshToken: string;
+        };
+    }> {
+        try {
+            // Verify the refresh token
+            const payload = this.jwt.verify<JwtPayload>(refreshToken, {
+                secret: this.configService.get<string>('JWT_SECRET'),
+            });
+
+            // Get the user to ensure they still exist
+            const user = await this.db.user.findFirst({
+                where: { id: payload.id },
+                select: {
+                    id: true,
+                    email: true,
+                    role: true,
+                    name: true,
+                },
+            });
+
+            if (!user) {
+                this.logger.warn('User not found for refresh token', 'Auth', {
+                    userId: payload.id,
+                });
+                throw new BadRequestException('Invalid refresh token - user not found');
+            }
+
+            // Generate new tokens
+            const newPayload: JwtPayload = {
+                email: user.email,
+                id: user.id,
+                role: user.role,
+            };
+
+            const accessToken = this.jwt.sign(newPayload, {
+                expiresIn: '15m',
+            });
+
+            const newRefreshToken = this.jwt.sign(newPayload, {
+                secret: this.configService.get<string>('JWT_SECRET'),
+                expiresIn: '7d',
+            });
+
+            this.logger.logAuthEvent('TokenRefresh', user.id, {
+                email: user.email,
+            });
+
+            return {
+                message: 'Token refreshed successfully',
+                data: {
+                    accessToken,
+                    refreshToken: newRefreshToken,
+                },
+            };
+        } catch (error) {
+            this.logger.warn('Invalid refresh token', 'Auth', {
+                error: (error as Error).message,
+            });
+            throw new BadRequestException('Invalid or expired refresh token');
+        }
     }
    
 }

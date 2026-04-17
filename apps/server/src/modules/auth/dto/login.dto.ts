@@ -20,3 +20,9 @@ export class LoginDto {
   @MinLength(6)
   password!: string;
 }
+
+export interface JwtPayload{
+  email:string
+  id:string
+  role:string
+}

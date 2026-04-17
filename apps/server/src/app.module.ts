@@ -1,4 +1,4 @@
-import { Module } from '@nestjs/common';
+import { MiddlewareConsumer, Module, NestModule } from '@nestjs/common';
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
 import { ConfigModule, ConfigService } from '@nestjs/config';
@@ -6,6 +6,14 @@ import { PassportModule } from '@nestjs/passport';
 import { JwtModule } from '@nestjs/jwt';
 import { LoggerModule } from './logger/logger.module';
 import { AuthModule } from './modules/auth/auth.module';
+import { GeminiModule } from './modules/gemini/gemini.module';
+import { BayseModule } from './modules/bayse/bayse.module';
+import { PortfolioModule } from './modules/portfolio/portfolio.module';
+import { RiskModule } from './modules/risk/risk.module';
+import { HttpMiddleware } from './common/middleware/http.middleware';
+import { PrismaService } from './modules/prisma/prisma.service';
+import { LoggerService } from './logger/logger.service';
+import { JwtStrategy } from './common/utils/jwt-strategy.utils';
 
 @Module({
   imports: [ConfigModule.forRoot({
@@ -14,7 +22,8 @@ import { AuthModule } from './modules/auth/auth.module';
   }),
   LoggerModule,
   PassportModule.register({
-    defaultStrategy: "jwt"
+    defaultStrategy: 'jwt',
+    session: false,
   }),
   JwtModule.registerAsync({
     global:true,
@@ -33,10 +42,23 @@ import { AuthModule } from './modules/auth/auth.module';
         }
 
     },
-  }),AuthModule
+  }),AuthModule,
+  GeminiModule,
+  BayseModule,
+  PortfolioModule,
+  RiskModule,
+  
 ],
   
   controllers: [AppController],
-  providers: [AppService],
+  providers: [AppService, PrismaService, LoggerService, JwtStrategy],
+  exports: [PassportModule, JwtStrategy],
 })
-export class AppModule {}
+export class AppModule implements NestModule {
+  configure(consumer: MiddlewareConsumer) {
+  consumer
+  .apply(HttpMiddleware)
+  .exclude('auth/(.*)', 'api-docs/(.*)')
+  .forRoutes('*');
+  }
+}
