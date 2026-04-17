@@ -14,6 +14,6 @@ RUN npm install --omit-dev
 COPY --from=builder /app/dist ./dist
 COPY --from=builder /app/prisma ./prisma
 COPY --from=builder /app/prisma.config.ts ./prisma.config.ts
-RUN  npm prisma generate
+RUN  npx prisma generate
 EXPOSE 8080
 CMD ["node","dist/src/main"]
