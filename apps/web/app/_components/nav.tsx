@@ -34,7 +34,7 @@ export function Nav() {
         className="flex items-center gap-2 rounded-lg px-1 font-display text-base font-semibold tracking-tight text-white focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-primary sm:gap-2.5 sm:text-lg"
       >
         <Image
-          src="/synth_sentry_emblem.jpg"
+          src="/synth_sentry_emblem.png"
           alt=""
           width={160}
           height={160}
