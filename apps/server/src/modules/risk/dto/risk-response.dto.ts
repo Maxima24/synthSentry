@@ -1,100 +1,157 @@
-import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
-import { RiskLevel } from './create-risk.dto';
+import { ApiProperty } from '@nestjs/swagger';
 
-export class RiskScoreDto {
-  @ApiProperty({ example: 65 })
-  overallScore!: number;
+export enum RiskLevel {
+  LOW = 'low',
+  MEDIUM = 'medium',
+  HIGH = 'high',
+  CRITICAL = 'critical',
+}
 
-  @ApiProperty({ enum: RiskLevel, example: 'medium' })
+export class PerAssetScoreDto {
+  @ApiProperty({ description: 'Bayse event title (shortened)' })
+  symbol!: string;
+
+  @ApiProperty({ minimum: 0, maximum: 100 })
+  score!: number;
+
+  @ApiProperty({ enum: RiskLevel })
   riskLevel!: RiskLevel;
 
-  @ApiProperty({ example: 'Your portfolio shows moderate risk due to concentration in volatile crypto assets.' })
-  explanation!: string;
+  @ApiProperty({ type: [String] })
+  riskFactors!: string[];
+}
 
-  @ApiProperty({
-    example: [
-      'High concentration in BTC (60% of portfolio)',
-      'Crypto assets show elevated volatility',
-      'No diversification into traditional assets',
-    ],
-  })
-  reasoningPath!: string[];
+export class RiskScoreDto {
+  @ApiProperty({ minimum: 0, maximum: 100 })
+  overallScore!: number;
 
-  @ApiProperty({ example: ['BTC: Unusual 12% price movement'] })
-  anomalies!: string[];
+  @ApiProperty({ enum: RiskLevel })
+  riskLevel!: RiskLevel;
 
   @ApiProperty()
-  perAssetScores!: Array<{
-    symbol: string;
-    score: number;
-    riskLevel: RiskLevel;
-    riskFactors: string[];
-  }>;
+  explanation!: string;
 
-  @ApiProperty({ example: '2025-04-17T12:00:00Z' })
+  @ApiProperty({ type: [String] })
+  reasoningPath!: string[];
+
+  @ApiProperty({ type: [String] })
+  anomalies!: string[];
+
+  @ApiProperty({ type: [PerAssetScoreDto] })
+  perAssetScores!: PerAssetScoreDto[];
+
+  @ApiProperty()
   evaluatedAt!: string;
 }
 
 export class RiskSnapshotDto {
-  @ApiProperty({ example: 'a1b2c3d4-e5f6-7890-abcd-ef1234567890' })
+  @ApiProperty()
   id!: string;
 
-  @ApiProperty({ example: 65 })
+  @ApiProperty({ minimum: 0, maximum: 100 })
   overallScore!: number;
+
+  @ApiProperty({ enum: RiskLevel })
+  riskLevel!: RiskLevel;
 
   @ApiProperty()
   explanation!: string;
 
-  @ApiProperty()
+  @ApiProperty({
+    type: 'object',
+    additionalProperties: { type: 'number' },
+    example: { 'Will BTC hit 100k?': 72, 'Super Eagles AFCON': 45 },
+  })
   holdingScores!: Record<string, number>;
 
-  @ApiProperty({ example: '2025-04-17T12:00:00Z' })
+  @ApiProperty()
   snapShotAt!: string;
 }
 
 export class AlertTriggeredDto {
-  @ApiProperty({ example: 'a1b2c3d4-e5f6-7890-abcd-ef1234567890' })
+  @ApiProperty()
   alertId!: string;
 
-  @ApiProperty({ example: 'BTC' })
-  symbol!: string;
+  @ApiProperty({ description: 'Event title label (was symbol in stock version)' })
+  label!: string;
 
-  @ApiProperty({ example: 75 })
+  @ApiProperty({ minimum: 0, maximum: 100 })
   currentScore!: number;
 
-  @ApiProperty({ example: 70 })
+  @ApiProperty({ minimum: 0, maximum: 100 })
   threshold!: number;
 
-  @ApiProperty({ example: 'Risk score exceeded threshold' })
+  @ApiProperty()
   message!: string;
 
-  @ApiProperty({ example: '2025-04-17T12:00:00Z' })
+  @ApiProperty()
   triggeredAt!: string;
 }
 
-export class PortfolioRiskSummaryDto {
+export class PortfolioSummaryFieldDto {
   @ApiProperty()
-  portfolio!: {
-    id: string;
-    name: string;
-    totalValue: number;
-  };
+  id!: string;
 
   @ApiProperty()
+  name!: string;
+
+  @ApiProperty({ description: 'Current total value of all open positions (USD)' })
+  totalValue!: number;
+
+  @ApiProperty({ description: 'Total amount invested across all positions (USD)' })
+  totalCost!: number;
+
+  @ApiProperty({ description: 'Overall portfolio gain/loss percentage' })
+  totalPercentageChange!: number;
+
+  @ApiProperty({ description: 'Available USD wallet balance on Bayse' })
+  walletUsd!: number;
+
+  @ApiProperty({ description: 'Available NGN wallet balance on Bayse' })
+  walletNgn!: number;
+
+  @ApiProperty({ description: 'Number of open prediction market positions' })
+  openPositions!: number;
+}
+
+export class AlertSummaryDto {
+  @ApiProperty()
+  id!: string;
+
+  @ApiProperty({ description: 'Event/market label this alert is attached to' })
+  label!: string;
+
+  @ApiProperty({ minimum: 0, maximum: 100 })
+  threshold!: number;
+
+  @ApiProperty()
+  triggered!: boolean;
+
+  @ApiProperty({ required: false, nullable: true })
+  triggeredAt?: string;
+}
+
+export class AnomalySummaryDto {
+  @ApiProperty({ description: 'Event/market label where anomaly was detected' })
+  label!: string;
+
+  @ApiProperty()
+  reason!: string;
+
+  @ApiProperty({ enum: ['low', 'medium', 'high'] })
+  severity!: string;
+}
+
+export class PortfolioRiskSummaryDto {
+  @ApiProperty({ type: PortfolioSummaryFieldDto })
+  portfolio!: PortfolioSummaryFieldDto;
+
+  @ApiProperty({ type: RiskScoreDto })
   risk!: RiskScoreDto;
 
-  @ApiProperty()
-  alerts!: Array<{
-    id: string;
-    symbol: string;
-    threshold: number;
-    triggered: boolean;
-  }>;
+  @ApiProperty({ type: [AlertSummaryDto] })
+  alerts!: AlertSummaryDto[];
 
-  @ApiProperty()
-  activeAnomalies!: Array<{
-    symbol: string;
-    reason: string;
-    severity: string;
-  }>;
+  @ApiProperty({ type: [AnomalySummaryDto] })
+  activeAnomalies!: AnomalySummaryDto[];
 }

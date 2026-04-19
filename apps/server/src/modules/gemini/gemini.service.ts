@@ -2,12 +2,14 @@ import { Injectable, Logger, InternalServerErrorException } from '@nestjs/common
 import { GoogleGenerativeAI, GenerativeModel } from '@google/generative-ai';
 import { ConfigService } from '@nestjs/config';
 
+// gemini.service.ts — update HoldingData to match PM reality
+
 export interface HoldingData {
   symbol: string;
-  quantity: number;
-  currentPrice: number;
-  change24h: number;
-  value: number;
+  quantity: number;      
+  currentPrice: number;  
+  change24h: number;    
+  value: number;        
 }
 
 export interface RiskAnalysisResult {
@@ -102,34 +104,34 @@ export class GeminiService {
     };
   }
 
-  private buildRiskAnalysisPrompt(
-    holdings: HoldingData[],
-    totalValue: number,
-  ): string {
-    const holdingsSummary = holdings
-      .map(
-        (h) =>
-          `- ${h.symbol}: ${h.quantity} units @ $${h.currentPrice} (${h.change24h >= 0 ? '+' : ''}${h.change24h}% 24h) | Value: $${h.value.toFixed(2)} | Weight: ${((h.value / totalValue) * 100).toFixed(1)}%`,
-      )
-      .join('\n');
+ 
 
-    return `Analyze this portfolio and return a structured risk assessment.
+private buildRiskAnalysisPrompt(holdings: HoldingData[], totalValue: number): string {
+  const holdingsSummary = holdings
+    .map(
+      (h) =>
+        `- ${h.symbol}: ${h.quantity} shares @ $${h.currentPrice.toFixed(3)} implied prob (${h.change24h >= 0 ? '+' : ''}${h.change24h.toFixed(3)} 24h) | Value: $${h.value.toFixed(2)} | Weight: ${((h.value / totalValue) * 100).toFixed(1)}%`,
+    )
+    .join('\n');
+
+  return `Analyze this prediction market portfolio and return a structured risk assessment.
+Note: prices are implied probabilities (0.00–1.00), not stock prices.
 
 PORTFOLIO:
 Total Value: $${totalValue.toFixed(2)}
-Holdings:
+Positions:
 ${holdingsSummary}
 
 ANALYSIS STEPS:
-Step 1: Individual asset risk — volatility, concentration, recent price action
-Step 2: Concentration risk — flag any asset exceeding 20% of total portfolio
-Step 3: Correlation risk — are holdings in similar sectors or asset classes?
-Step 4: Market context — what do the 24h price movements signal?
+Step 1: Individual position risk — implied probability, concentration, recent price movement
+Step 2: Concentration risk — flag any position exceeding 20% of total portfolio
+Step 3: Correlation risk — are positions exposed to similar outcomes or categories?
+Step 4: Market context — what do the 24h probability shifts signal?
 Step 5: Synthesize into an overall risk score 0-100
 
 SCORING RUBRIC:
 0-20: Very Low Risk
-21-40: Low Risk
+21-40: Low Risk  
 41-60: Moderate Risk
 61-80: High Risk
 81-100: Critical Risk
@@ -148,5 +150,5 @@ Return this exact JSON structure:
   "reasoningPath": ["Step 1 finding", "Step 2 finding", "Step 3 finding", "Step 4 finding", "Step 5 synthesis"],
   "anomalies": ["any unusual patterns or concerns"]
 }`;
-  }
+}
 }

@@ -1,8 +1,3 @@
-// This is your Prisma schema file,
-// learn more about it in the docs: https://pris.ly/d/prisma-schema
-
-// Get a free hosted Postgres database in seconds: `npx create-db`
-
 generator client {
   provider = "prisma-client-js"
 }
@@ -10,75 +5,78 @@ generator client {
 datasource db {
   provider = "postgresql"
 }
+
 enum Role {
-  USER 
+  USER
   ADMIN
 }
 
-model User{
-  id String @id @default(uuid())
-  name String
-  email String
-  password String
-  role     Role  @default(USER)
-  createdAt DateTime @default(now())
-  portfolio Portfolio?
-  updatedAt DateTime @updatedAt
+model User {
+  id         String      @id @default(uuid())
+  name       String
+  email      String      @unique
+  password   String
+  role       Role        @default(USER)
+  portfolios Portfolio[]
+  createdAt  DateTime    @default(now())
+  updatedAt  DateTime    @updatedAt
 }
 
-model Portfolio{
-  id String @id @default(uuid())
-  name String
-  userId String @unique
-  user User  @relation(fields: [userId],references: [id],onDelete: Cascade)
-  holdings Holdings[]
+model Portfolio {
+  id        String          @id @default(uuid())
+  name      String
+  userId    String
+  user      User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  holdings  Holdings[]
   snapshots RiskSnapShots[]
-  
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  createdAt DateTime        @default(now())
+  updatedAt DateTime        @updatedAt
 }
-model Holdings{
-  id String @id @default(uuid())
-  name String?
-  symbol String
-  quantity Decimal
+
+model Holdings {
+  id          String        @id @default(uuid())
+  symbol      String        // Bayse eventId
+  eventTitle  String?       // "Will BTC hit $100k by June 2026?"
+  marketId    String?       // Bayse marketId — used for ticker calls
+  outcome     String?       // "YES" | "NO"
+  quantity    Decimal
   portfolioId String
-  portfolio  Portfolio @relation(references: [id],fields: [portfolioId],onDelete: Cascade)
-  alerts  AlertConfig[]
-  anomalies AnomalyFlag[]
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-  @@unique([symbol,portfolioId])
+  portfolio   Portfolio     @relation(references: [id], fields: [portfolioId], onDelete: Cascade)
+  alerts      AlertConfig[]
+  anomalies   AnomalyFlag[]
+  createdAt   DateTime      @default(now())
+  updatedAt   DateTime      @updatedAt
+
+  @@unique([symbol, portfolioId])
 }
-
-
 
 model RiskSnapShots {
-  id String  @id @default(uuid())
-  portfolioId String
-  portfolio Portfolio  @relation(fields: [portfolioId],references: [id])
-  overallScore Int
-  explanation String
+  id            String    @id @default(uuid())
+  portfolioId   String
+  portfolio     Portfolio @relation(fields: [portfolioId], references: [id])
+  overallScore  Int
+  riskLevel     String    @default("low")
+  explanation   String
   holdingScores Json
-  snapShotAt DateTime @default(now())
-
+  snapShotAt    DateTime  @default(now())
 }
 
-model AlertConfig{
-  id String @id @default(uuid())
-  holdingId  String
-  holdings Holdings @relation(references: [id],fields: [holdingId])
-  threshold Int
-  reason  String
-  triggeredAt DateTime? 
-  createdAt DateTime @default(now())
+model AlertConfig {
+  id          String    @id @default(uuid())
+  holdingId   String    @unique
+  holdings    Holdings  @relation(references: [id], fields: [holdingId])
+  threshold   Int
+  reason      String
+  triggeredAt DateTime?
+  createdAt   DateTime  @default(now())
 }
 
 model AnomalyFlag {
-  id String @id @default(uuid())
-  holdingId String
-  holdings Holdings @relation(references: [id],fields: [holdingId])
-  reason String
-  detectedAt DateTime @default(now())
-  resolved Boolean @default(false)
+  id         String    @id @default(uuid())
+  holdingId  String
+  holdings   Holdings  @relation(references: [id], fields: [holdingId])
+  reason     String
+  resolved   Boolean   @default(false)
+  resolvedAt DateTime?
+  detectedAt DateTime  @default(now())
 }

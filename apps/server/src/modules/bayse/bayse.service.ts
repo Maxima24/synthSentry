@@ -1,361 +1,557 @@
 import { Injectable, HttpException, HttpStatus, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import {
-  BayseAssetResponseDto,
-  BayseSearchResultDto,
-  BayseMarketTrendDto,
-  BaysePriceHistoryDto,
-  BaysePortfolioPriceDto,
-  BayseAnomalyDetectionDto,
-} from './dto/bayse-response.dto';
-import { TimeFrame } from './dto/get-asset.dto';
+import * as crypto from 'crypto';
 
-interface BayseApiAsset {
-  symbol: string;
-  name?: string;
-  price: number;
-  change_24h?: number;
-  volume?: number;
-  market_cap?: number;
-  currency?: string;
-  type?: string;
+// ── Raw API shapes ─────────────────────────────────────────────────────────────
+
+interface BayseMarket {
+  id: string;
+  title: string;
+  status: string;
+  outcome1Id: string;
+  outcome1Label: string;
+  outcome1Price: number;
+  outcome2Id: string;
+  outcome2Label: string;
+  outcome2Price: number;
+  yesBuyPrice: number;
+  noBuyPrice: number;
+  feePercentage: number;
+  totalOrders: number;
+  rules: string;
+  marketThreshold?: number;
+  marketThresholdRange?: string;
+  marketCloseValue?: number;
 }
 
-interface BayseApiSearchResult {
-  symbol: string;
-  name: string;
-  type?: string;
+interface BayseEvent {
+  id: string;
+  slug: string;
+  title: string;
+  description: string;
+  category: string;
+  type: 'single' | 'combined';
+  engine: 'AMM' | 'CLOB';
+  status: string;
+  resolutionDate: string;
+  closingDate: string;
+  imageUrl?: string;
+  liquidity: number;
+  totalVolume: number;
+  totalOrders: number;
+  supportedCurrencies: string[];
+  userWatchlisted: boolean;
+  assetSymbolPair?: string;
+  eventThreshold?: number;
+  seriesSlug?: string;
+  markets: BayseMarket[];
 }
 
-interface BayseApiPricePoint {
+interface BaysePortfolioPosition {
+  id: string;
+  outcome: 'YES' | 'NO';
+  outcomeId: string;
+  balance: number;
+  availableBalance: number;
+  averagePrice: number;
+  cost: number;
+  currentValue: number;
+  sellPrice: number;
+  payoutIfOutcomeWins: number;
+  percentageChange: number;
+  currency: string;
+  market: {
+    id: string;
+    title: string;
+    event: {
+      id: string;
+      title: string;
+      type: string;
+      engine: string;
+    };
+  };
+  createdAt: string;
+  updatedAt: string;
+}
+
+interface BayseTickerResponse {
+  marketId: string;
+  outcome: string;
+  lastPrice: number;
+  bestBid: number;
+  bestAsk: number;
+  midPrice: number;
+  spread: number;
+  volume24h: number;
+  high24h: number;
+  low24h: number;
+  priceChange24h: number;
+  tradeCount24h: number;
   timestamp: string;
-  price: number;
-  volume: number;
 }
+
+interface BayseWalletAsset {
+  id: string;
+  symbol: string;
+  userId: string;
+  network: string;
+  availableBalance: number;
+  pendingBalance: number;
+  depositActivity: 'ACTIVE' | 'SUSPENDED';
+  withdrawalActivity: 'ACTIVE' | 'SUSPENDED';
+  wagerActivity: 'ACTIVE' | 'SUSPENDED';
+  isDefault: boolean;
+  isLocalCurrencyAsset: boolean;
+  addresses: Array<{
+    id: string;
+    address: string;
+    symbol: string;
+    provider: string;
+    network: string;
+  }>;
+  createdAt: string;
+  updatedAt: string;
+}
+
+// ── DTO shapes ─────────────────────────────────────────────────────────────────
+
+export interface BayseEventDto {
+  id: string;
+  slug: string;
+  title: string;
+  description: string;
+  category: string;
+  status: string;
+  resolutionDate: string;
+  liquidity: number;
+  totalVolume: number;
+  totalOrders: number;
+  yesPrice: number;
+  noPrice: number;
+  impliedProbability: number;
+  markets: BayseMarket[];
+}
+
+export interface BaysePortfolioDto {
+  positions: Array<{
+    id: string;
+    eventTitle: string;
+    marketTitle: string;
+    outcome: 'YES' | 'NO';
+    shares: number;
+    averagePrice: number;
+    cost: number;
+    currentValue: number;
+    percentageChange: number;
+    payoutIfWins: number;
+    currency: string;
+  }>;
+  totalCost: number;
+  totalCurrentValue: number;
+  totalPercentageChange: number;
+}
+
+export interface BayseTickerDto {
+  marketId: string;
+  lastPrice: number;
+  midPrice: number;
+  spread: number;
+  volume24h: number;
+  high24h: number;
+  low24h: number;
+  priceChange24h: number;
+  timestamp: string;
+}
+
+export interface BayseWalletDto {
+  assets: Array<{
+    symbol: string;
+    availableBalance: number;
+    pendingBalance: number;
+    isDefault: boolean;
+    depositActive: boolean;
+    withdrawalActive: boolean;
+  }>;
+  totalUsd: number;
+  totalNgn: number;
+}
+
+export interface BayseMarketTrendDto {
+  eventId: string;
+  title: string;
+  category: string;
+  yesPrice: number;
+  totalVolume: number;
+  liquidity: number;
+  trend: 'bullish' | 'bearish' | 'neutral';
+}
+
+// ── Service ────────────────────────────────────────────────────────────────────
 
 @Injectable()
 export class BayseService {
-  private readonly apiKey: string;
-  private readonly baseUrl: string;
   private readonly logger = new Logger(BayseService.name);
+  private readonly publicKey: string;
+  private readonly secretKey: string;
+  private readonly baseUrl = 'https://relay.bayse.markets/v1';
 
-  // Cache for rate limiting (5 minutes)
-  private priceCache: Map<string, { data: BayseAssetResponseDto; timestamp: number }> = new Map();
-  private readonly CACHE_TTL = 5 * 60 * 1000; // 5 minutes
+  private cache = new Map<string, { data: unknown; ts: number }>();
+  private readonly CACHE_TTL = 5 * 60 * 1000;
 
   constructor(private configService: ConfigService) {
-    this.apiKey = this.configService.get<string>('BAYSE_API_KEY') || '';
-    this.baseUrl = this.configService.get<string>('BAYSE_API_URL') || 'https://api.bayse.io/v1';
-    
-    if (!this.apiKey) {
-      this.logger.warn('BAYSE_API_KEY not configured - API calls will fail');
+    this.publicKey = this.configService.get<string>('BAYSE_API_KEY') || '';
+    this.secretKey = this.configService.get<string>('BAYSE_SECRET_KEY') || '';
+
+    if (!this.publicKey || !this.secretKey) {
+      this.logger.warn('BAYSE_PUBLIC_KEY or BAYSE_SECRET_KEY not configured');
     }
   }
 
-  private getHeaders(): HeadersInit {
+  // ── Auth header builders ───────────────────────────────────────────────────
+
+  /** Public endpoints — no auth needed */
+  private publicHeaders(): HeadersInit {
+    return { 'Content-Type': 'application/json' };
+  }
+
+  /** Read endpoints — X-Public-Key only */
+  private readHeaders(): HeadersInit {
     return {
-      'Authorization': `Bearer ${this.apiKey}`,
+      'X-Public-Key': this.publicKey,
       'Content-Type': 'application/json',
     };
   }
 
-  private transformAsset(data: BayseApiAsset): BayseAssetResponseDto {
+  /**
+   * Write endpoints — X-Public-Key + X-Timestamp + X-Signature
+   * Signing payload: {timestamp}.{METHOD}.{path}.{bodyHash}
+   * bodyHash = SHA-256 hex of raw body, or '' if no body
+   */
+  private writeHeaders(method: string, path: string, body?: string): HeadersInit {
+    const timestamp = Math.floor(Date.now() / 1000).toString();
+    const bodyHash = body
+      ? crypto.createHash('sha256').update(body).digest('hex')
+      : '';
+
+    const payload = `${timestamp}.${method.toUpperCase()}.${path}.${bodyHash}`;
+    const signature = crypto
+      .createHmac('sha256', this.secretKey)
+      .update(payload)
+      .digest('base64');
+
     return {
-      symbol: data.symbol,
-      name: data.name || data.symbol,
-      price: data.price,
-      change24h: data.change_24h || 0,
-      volume: data.volume || 0,
-      marketCap: data.market_cap,
-      currency: data.currency || 'USD',
-      type: data.type || 'unknown',
+      'X-Public-Key': this.publicKey,
+      'X-Timestamp': timestamp,
+      'X-Signature': signature,
+      'Content-Type': 'application/json',
     };
   }
 
-  /**
-   * Get single asset price and details
-   * PRD: Live Market Dashboard - Real-time price feed
-   */
-  async getAssetPrice(symbol: string): Promise<BayseAssetResponseDto> {
-    // Check cache first
-    const cached = this.priceCache.get(symbol.toUpperCase());
-    if (cached && Date.now() - cached.timestamp < this.CACHE_TTL) {
-      return cached.data;
+  // ── Core fetch ─────────────────────────────────────────────────────────────
+
+  private async get<T>(
+    path: string,
+    params?: Record<string, string | number | boolean>,
+    authLevel: 'public' | 'read' = 'public',
+  ): Promise<T> {
+    const url = new URL(`${this.baseUrl}${path}`);
+    if (params) {
+      Object.entries(params).forEach(([k, v]) => url.searchParams.set(k, String(v)));
     }
 
-    try {
-      const response = await fetch(`${this.baseUrl}/assets/${symbol.toUpperCase()}`, {
-        headers: this.getHeaders(),
-      });
-
-      if (!response.ok) {
-        throw new Error(`Bayse API error: ${response.status} - ${response.statusText}`);
-      }
-
-      const data: BayseApiAsset = await response.json();
-      const transformed = this.transformAsset(data);
-
-      // Cache the result
-      this.priceCache.set(symbol.toUpperCase(), { data: transformed, timestamp: Date.now() });
-
-      return transformed;
-    } catch (error) {
-      this.logger.error(`Failed to fetch asset ${symbol}: ${(error as Error).message}`);
-      throw new HttpException(
-        `Failed to fetch ${symbol}: ${(error as Error).message}`,
-        HttpStatus.SERVICE_UNAVAILABLE,
-      );
+    const cacheKey = `${authLevel}:${url.toString()}`;
+    const cached = this.cache.get(cacheKey);
+    if (cached && Date.now() - cached.ts < this.CACHE_TTL) {
+      return cached.data as T;
     }
+
+    const headers = authLevel === 'read' ? this.readHeaders() : this.publicHeaders();
+    const response = await fetch(url.toString(), { headers });
+
+    if (!response.ok) {
+      const body = await response.json().catch(() => ({}));
+      throw new Error(`Bayse ${response.status}: ${(body as any).message || response.statusText}`);
+    }
+
+    const data = await response.json() as T;
+    this.cache.set(cacheKey, { data, ts: Date.now() });
+    return data;
   }
 
-  /**
-   * Get multiple assets in one call
-   * PRD: Portfolio Builder - compute current value per holding
-   */
-  async getMultipleAssets(symbols: string[]): Promise<BayseAssetResponseDto[]> {
-    const uniqueSymbols = [...new Set(symbols.map(s => s.toUpperCase()))];
-    const results: BayseAssetResponseDto[] = [];
+  private async post<T>(path: string, body: Record<string, unknown>): Promise<T> {
+    const rawBody = JSON.stringify(body);
+    const response = await fetch(`${this.baseUrl}${path}`, {
+      method: 'POST',
+      headers: this.writeHeaders('POST', path, rawBody),
+      body: rawBody,
+    });
 
-    // Process in batches of 10 to avoid overwhelming the API
-    const batchSize = 10;
-    for (let i = 0; i < uniqueSymbols.length; i += batchSize) {
-      const batch = uniqueSymbols.slice(i, i + batchSize);
-      const promises = batch.map(symbol => this.getAssetPrice(symbol).catch(err => {
-        this.logger.warn(`Failed to fetch ${symbol}: ${err.message}`);
-        return null;
-      }));
-      
-      const batchResults = await Promise.all(promises);
-      results.push(...batchResults.filter(Boolean) as BayseAssetResponseDto[]);
+    if (!response.ok) {
+      const err = await response.json().catch(() => ({}));
+      throw new Error(`Bayse ${response.status}: ${(err as any).message || response.statusText}`);
     }
 
-    return results;
+    return response.json() as Promise<T>;
   }
 
-  /**
-   * Search for assets by query
-   * PRD: Portfolio Builder - symbol search powered by Bayse API
-   */
-  async searchAssets(query: string): Promise<BayseSearchResultDto[]> {
-    try {
-      const response = await fetch(
-        `${this.baseUrl}/search?q=${encodeURIComponent(query)}`,
-        { headers: this.getHeaders() }
-      );
+  private async delete<T>(path: string): Promise<T> {
+    const response = await fetch(`${this.baseUrl}${path}`, {
+      method: 'DELETE',
+      headers: this.writeHeaders('DELETE', path),
+    });
 
-      if (!response.ok) {
-        throw new Error(`Bayse API search error: ${response.status}`);
-      }
-
-      const data = await response.json();
-      const results: BayseApiSearchResult[] = data.results || data.assets || [];
-      
-      return results.map(item => ({
-        symbol: item.symbol,
-        name: item.name || item.symbol,
-        type: item.type || 'unknown',
-      }));
-    } catch (error) {
-      this.logger.error(`Failed to search assets: ${(error as Error).message}`);
-      throw new HttpException(
-        `Search failed: ${(error as Error).message}`,
-        HttpStatus.SERVICE_UNAVAILABLE,
-      );
+    if (!response.ok) {
+      const err = await response.json().catch(() => ({}));
+      throw new Error(`Bayse ${response.status}: ${(err as any).message || response.statusText}`);
     }
+
+    return response.json() as Promise<T>;
   }
 
-  /**
-   * Get price history for an asset
-   * PRD: Risk History Chart (P1) - time-series of risk score
-   */
-  async getAssetHistory(symbol: string, timeframe: TimeFrame = TimeFrame['24H']): Promise<BaysePriceHistoryDto> {
+  private handleError(context: string, error: unknown): never {
+    const message = (error as Error).message;
+    this.logger.error(`${context}: ${message}`);
+    throw new HttpException(message, HttpStatus.SERVICE_UNAVAILABLE);
+  }
+
+  // ── Public methods ─────────────────────────────────────────────────────────
+
+  /** Public — no auth required, optional X-Public-Key for personalization */
+  async listEvents(opts: {
+    keyword?: string;
+    category?: string;
+    status?: string;
+    trending?: boolean;
+    currency?: 'USD' | 'NGN';
+    page?: number;
+    size?: number;
+  } = {}): Promise<{ events: BayseEventDto[]; totalCount: number; lastPage: number }> {
     try {
-      const response = await fetch(
-        `${this.baseUrl}/assets/${symbol.toUpperCase()}/history?timeframe=${timeframe}`,
-        { headers: this.getHeaders() }
+      const params: Record<string, string | number | boolean> = {
+        currency: opts.currency ?? 'USD',
+        page: opts.page ?? 1,
+        size: opts.size ?? 20,
+      };
+      if (opts.keyword)  params.keyword  = opts.keyword;
+      if (opts.category) params.category = opts.category;
+      if (opts.status)   params.status   = opts.status;
+      if (opts.trending) params.trending = true;
+
+      const data = await this.get<{ events: BayseEvent[]; pagination: any }>(
+        '/pm/events',
+        params,
+        'public', // public endpoint — X-Public-Key optional
       );
 
-      if (!response.ok) {
-        throw new Error(`Bayse API history error: ${response.status}`);
-      }
-
-      const data = await response.json();
-      
       return {
-        symbol: symbol.toUpperCase(),
-        timeframe,
-        data: (data.history || data.data || []).map((point: BayseApiPricePoint) => ({
-          timestamp: point.timestamp,
-          price: point.price,
-          volume: point.volume || 0,
+        events: data.events.map(this.transformEvent),
+        totalCount: data.pagination.totalCount,
+        lastPage: data.pagination.lastPage,
+      };
+    } catch (e) {
+      this.handleError('listEvents', e);
+    }
+  }
+
+  /** Public */
+  async getEvent(eventId: string): Promise<BayseEventDto> {
+    try {
+      const data = await this.get<BayseEvent>(`/pm/events/${eventId}`, undefined, 'public');
+      return this.transformEvent(data);
+    } catch (e) {
+      this.handleError(`getEvent(${eventId})`, e);
+    }
+  }
+
+  /** Public */
+  async getEventBySlug(slug: string): Promise<BayseEventDto> {
+    try {
+      const data = await this.get<BayseEvent>(`/pm/events/slug/${slug}`, undefined, 'public');
+      return this.transformEvent(data);
+    } catch (e) {
+      this.handleError(`getEventBySlug(${slug})`, e);
+    }
+  }
+
+  /** Public — no auth needed for ticker */
+  async getMarketTicker(marketId: string, outcome: 'YES' | 'NO' = 'YES'): Promise<BayseTickerDto> {
+    try {
+      const data = await this.get<BayseTickerResponse>(
+        `/pm/markets/${marketId}/ticker`,
+        { outcome },
+        'public',
+      );
+      return {
+        marketId: data.marketId,
+        lastPrice: data.lastPrice,
+        midPrice: data.midPrice,
+        spread: data.spread,
+        volume24h: data.volume24h,
+        high24h: data.high24h,
+        low24h: data.low24h,
+        priceChange24h: data.priceChange24h,
+        timestamp: data.timestamp,
+      };
+    } catch (e) {
+      this.handleError(`getMarketTicker(${marketId})`, e);
+    }
+  }
+
+  /** Public — trending events */
+  async getTrendingEvents(limit = 10): Promise<BayseMarketTrendDto[]> {
+    try {
+      const { events } = await this.listEvents({ trending: true, size: limit, status: 'open' });
+      return events.map(e => ({
+        eventId: e.id,
+        title: e.title,
+        category: e.category,
+        yesPrice: e.yesPrice,
+        totalVolume: e.totalVolume,
+        liquidity: e.liquidity,
+        trend: e.yesPrice > 0.5 ? 'bullish' : e.yesPrice < 0.5 ? 'bearish' : 'neutral',
+      }));
+    } catch (e) {
+      this.handleError('getTrendingEvents', e);
+    }
+  }
+
+  /** Read auth — requires X-Public-Key */
+  async getPortfolio(opts: { page?: number; size?: number } = {}): Promise<BaysePortfolioDto> {
+    try {
+      const data = await this.get<{
+        outcomeBalances: BaysePortfolioPosition[];
+        portfolioCost: number;
+        portfolioCurrentValue: number;
+        portfolioPercentageChange: number;
+      }>('/pm/portfolio', { page: opts.page ?? 1, size: opts.size ?? 20 }, 'read');
+
+      return {
+        positions: data.outcomeBalances.map(p => ({
+          id: p.id,
+          eventTitle: p.market.event.title,
+          marketTitle: p.market.title,
+          outcome: p.outcome,
+          shares: p.balance,
+          averagePrice: p.averagePrice,
+          cost: p.cost,
+          currentValue: p.currentValue,
+          percentageChange: p.percentageChange,
+          payoutIfWins: p.payoutIfOutcomeWins,
+          currency: p.currency,
         })),
+        totalCost: data.portfolioCost,
+        totalCurrentValue: data.portfolioCurrentValue,
+        totalPercentageChange: data.portfolioPercentageChange,
       };
-    } catch (error) {
-      this.logger.error(`Failed to fetch history for ${symbol}: ${(error as Error).message}`);
-      throw new HttpException(
-        `Failed to fetch history for ${symbol}: ${(error as Error).message}`,
-        HttpStatus.SERVICE_UNAVAILABLE,
-      );
+    } catch (e) {
+      this.handleError('getPortfolio', e);
     }
   }
 
-  /**
-   * Get market trends/top assets
-   * PRD: Live Market Dashboard - market overview
-   */
-  async getMarketTrends(limit: number = 10): Promise<BayseMarketTrendDto[]> {
+  /** Read auth — requires X-Public-Key */
+  async getWalletAssets(): Promise<BayseWalletDto> {
     try {
-      const response = await fetch(
-        `${this.baseUrl}/market/trends?limit=${limit}`,
-        { headers: this.getHeaders() }
+      const data = await this.get<{ assets: BayseWalletAsset[] }>(
+        '/wallet/assets',
+        undefined,
+        'read',
       );
 
-      if (!response.ok) {
-        throw new Error(`Bayse API trends error: ${response.status}`);
-      }
-
-      const data = await response.json();
-      const trends = data.trends || data.top || [];
-
-      return trends.map((item: BayseApiAsset) => ({
-        symbol: item.symbol,
-        name: item.name || item.symbol,
-        price: item.price,
-        change24h: item.change_24h || 0,
-        trend: (item.change_24h || 0) > 0 ? 'bullish' : (item.change_24h || 0) < 0 ? 'bearish' : 'neutral',
-        volatility: this.calculateVolatility(item.change_24h),
-      }));
-    } catch (error) {
-      this.logger.error(`Failed to fetch market trends: ${(error as Error).message}`);
-      throw new HttpException(
-        `Failed to fetch market trends: ${(error as Error).message}`,
-        HttpStatus.SERVICE_UNAVAILABLE,
-      );
-    }
-  }
-
-  /**
-   * Calculate portfolio values with live prices
-   * PRD: Portfolio Builder - compute current value per holding
-   */
-  async calculatePortfolioValues(
-    holdings: Array<{ symbol: string; quantity: number }>
-  ): Promise<BaysePortfolioPriceDto[]> {
-    const symbols = holdings.map(h => h.symbol);
-    const prices = await this.getMultipleAssets(symbols);
-    
-    const priceMap = new Map(prices.map(p => [p.symbol, p]));
-
-    return holdings.map(holding => {
-      const priceData = priceMap.get(holding.symbol.toUpperCase());
-      if (!priceData) {
-        return null;
-      }
-
-      const currentValue = Number(holding.quantity) * priceData.price;
-      const change24hValue = currentValue * (priceData.change24h / 100);
+      const usdAsset = data.assets.find(a => a.symbol === 'USD');
+      const ngnAsset = data.assets.find(a => a.symbol === 'NGN');
 
       return {
-        symbol: holding.symbol.toUpperCase(),
-        quantity: Number(holding.quantity),
-        currentPrice: priceData.price,
-        currentValue: Math.round(currentValue * 100) / 100,
-        change24h: priceData.change24h,
-        change24hValue: Math.round(change24hValue * 100) / 100,
+        assets: data.assets.map(a => ({
+          symbol: a.symbol,
+          availableBalance: a.availableBalance,
+          pendingBalance: a.pendingBalance,
+          isDefault: a.isDefault,
+          depositActive: a.depositActivity === 'ACTIVE',
+          withdrawalActive: a.withdrawalActivity === 'ACTIVE',
+        })),
+        totalUsd: usdAsset?.availableBalance ?? 0,
+        totalNgn: ngnAsset?.availableBalance ?? 0,
       };
-    }).filter(Boolean) as BaysePortfolioPriceDto[];
+    } catch (e) {
+      this.handleError('getWalletAssets', e);
+    }
   }
 
-  /**
-   * Detect anomalies in asset prices
-   * PRD: Anomaly Detection - flag unusual price movements/volatility spikes
-   */
-  async detectAnomalies(symbols: string[]): Promise<BayseAnomalyDetectionDto[]> {
-    const anomalies: BayseAnomalyDetectionDto[] = [];
-    const assets = await this.getMultipleAssets(symbols);
+  /** Rule-based portfolio risk — uses getPortfolio (read auth) */
+  async analysePortfolioRisk(): Promise<{
+    riskLevel: 'low' | 'medium' | 'high';
+    flags: string[];
+    summary: string;
+  }> {
+    const portfolio = await this.getPortfolio({ size: 100 });
+    const flags: string[] = [];
 
-    for (const asset of assets) {
-      const anomaly = this.analyzeAssetAnomaly(asset);
-      if (anomaly.isAnomaly) {
-        anomalies.push(anomaly);
+    if (portfolio.positions.length === 0) {
+      return { riskLevel: 'low', flags: [], summary: 'No open positions.' };
+    }
+
+    for (const pos of portfolio.positions) {
+      const share = pos.cost / portfolio.totalCost;
+      if (share > 0.5) {
+        flags.push(`High concentration: ${pos.eventTitle} (${(share * 100).toFixed(1)}% of portfolio)`);
       }
     }
 
-    return anomalies;
-  }
-
-  /**
-   * Internal: Analyze single asset for anomalies
-   */
-  private analyzeAssetAnomaly(asset: BayseAssetResponseDto): BayseAnomalyDetectionDto {
-    const deviationPercent = Math.abs(asset.change24h);
-    let isAnomaly = false;
-    let reason = '';
-    let severity: 'low' | 'medium' | 'high' = 'low';
-
-    // High price change threshold ( > 10% in 24h is unusual)
-    if (deviationPercent > 10) {
-      isAnomaly = true;
-      severity = 'high';
-      const direction = asset.change24h > 0 ? 'increase' : 'decrease';
-      reason = `Unusual price movement: ${deviationPercent.toFixed(1)}% ${direction} in 24h`;
-    } else if (deviationPercent > 5) {
-      isAnomaly = true;
-      severity = 'medium';
-      const direction = asset.change24h > 0 ? 'increase' : 'decrease';
-      reason = `Notable price movement: ${deviationPercent.toFixed(1)}% ${direction} in 24h`;
-    } else if (asset.volume && asset.marketCap) {
-      // High volume relative to market cap indicates unusual activity
-      const volumeRatio = asset.volume / asset.marketCap;
-      if (volumeRatio > 0.1) {
-        isAnomaly = true;
-        severity = 'medium';
-        reason = `Unusual trading volume: ${(volumeRatio * 100).toFixed(1)}% of market cap`;
-      }
+    const longShots = portfolio.positions.filter(p => p.averagePrice < 0.2);
+    if (longShots.length > 0) {
+      flags.push(`${longShots.length} long-shot position(s) with <20% implied probability`);
     }
 
-    // If no anomaly detected
-    if (!isAnomaly) {
-      reason = 'No anomalies detected';
+    const losers = portfolio.positions.filter(p => p.percentageChange < -20);
+    if (losers.length > 0) {
+      flags.push(`${losers.length} position(s) down more than 20%`);
     }
+
+    if (portfolio.totalPercentageChange < -15) {
+      flags.push(`Portfolio is down ${Math.abs(portfolio.totalPercentageChange).toFixed(1)}% overall`);
+    }
+
+    const riskLevel = flags.length === 0 ? 'low' : flags.length <= 2 ? 'medium' : 'high';
 
     return {
-      symbol: asset.symbol,
-      isAnomaly,
-      reason,
-      severity,
-      deviationPercent: Math.round(deviationPercent * 10) / 10,
+      riskLevel,
+      flags,
+      summary: flags.length === 0
+        ? 'Portfolio looks well-balanced with no major risk flags.'
+        : `${flags.length} risk flag(s) detected across ${portfolio.positions.length} position(s).`,
     };
   }
 
-  /**
-   * Calculate volatility score (0-1) from price change
-   */
-  private calculateVolatility(change24h?: number): number {
-    if (!change24h) return 0;
-    const absChange = Math.abs(change24h);
-    // Normalize: 0% = 0 volatility, 10%+ = 1.0 volatility
-    return Math.min(absChange / 10, 1);
-  }
+  // ── Cache utilities ────────────────────────────────────────────────────────
 
-  /**
-   * Clear price cache (for testing or manual refresh)
-   */
   clearCache(): void {
-    this.priceCache.clear();
-    this.logger.log('Price cache cleared');
+    this.cache.clear();
+    this.logger.log('Cache cleared');
   }
 
-  /**
-   * Get cache status (for monitoring)
-   */
-  getCacheStatus(): { size: number; oldestEntry: number | null } {
-    let oldest: number | null = null;
-    for (const entry of this.priceCache.values()) {
-      if (!oldest || entry.timestamp < oldest) {
-        oldest = entry.timestamp;
-      }
-    }
-    return { size: this.priceCache.size, oldestEntry: oldest };
+  getCacheStatus(): { size: number } {
+    return { size: this.cache.size };
+  }
+
+  // ── Transformers ───────────────────────────────────────────────────────────
+
+  private transformEvent(e: BayseEvent): BayseEventDto {
+    const firstMarket = e.markets[0];
+    return {
+      id: e.id,
+      slug: e.slug,
+      title: e.title,
+      description: e.description,
+      category: e.category,
+      status: e.status,
+      resolutionDate: e.resolutionDate,
+      liquidity: e.liquidity,
+      totalVolume: e.totalVolume,
+      totalOrders: e.totalOrders,
+      yesPrice: firstMarket?.outcome1Price ?? 0,
+      noPrice: firstMarket?.outcome2Price ?? 0,
+      impliedProbability: (firstMarket?.outcome1Price ?? 0) * 100,
+      markets: e.markets,
+    };
   }
 }

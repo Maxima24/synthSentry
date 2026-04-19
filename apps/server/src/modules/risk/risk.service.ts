@@ -1,20 +1,29 @@
-import { Injectable, NotFoundException, Logger, BadRequestException } from '@nestjs/common';
+import {
+  Injectable,
+  NotFoundException,
+  Logger,
+  BadRequestException,
+} from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
-import { BayseService } from '../bayse/bayse.service';
-import { GeminiService, HoldingData, RiskAnalysisResult } from '../gemini/gemini.service';
+import { BayseService, BaysePortfolioDto } from '../bayse/bayse.service';
+import { GeminiService, HoldingData } from '../gemini/gemini.service';
 import {
   EvaluateRiskDto,
   GetRiskHistoryDto,
   SetAlertThresholdDto,
-  CreateRiskAlertDto,
+  RiskLevel,
 } from './dto/create-risk.dto';
-import { RiskLevel } from './dto/create-risk.dto';
-import { RiskScoreDto, RiskSnapshotDto, AlertTriggeredDto, PortfolioRiskSummaryDto } from './dto/risk-response.dto';
+import {
+  RiskScoreDto,
+  RiskSnapshotDto,
+  AlertTriggeredDto,
+  PortfolioRiskSummaryDto,
+} from './dto/risk-response.dto';
 
 @Injectable()
 export class RiskService {
   private readonly logger = new Logger(RiskService.name);
-  private readonly CACHE_TTL = 5 * 60 * 1000; // 5 minutes
+  private readonly CACHE_TTL = 5 * 60 * 1000;
 
   constructor(
     private db: PrismaService,
@@ -22,96 +31,78 @@ export class RiskService {
     private gemini: GeminiService,
   ) {}
 
-  /**
-   * Evaluate risk for a portfolio
-   * PRD: AI Risk Score - Gemini generates 0-100 risk score
-   */
-  async evaluatePortfolioRisk(dto: EvaluateRiskDto, userId: string): Promise<RiskScoreDto> {
-    // Verify portfolio ownership
-    const portfolio = await this.db.portfolio.findFirst({
+  // ── Core risk evaluation ─────────────────────────────────────────────────
+
+  async evaluatePortfolioRisk(
+    dto: EvaluateRiskDto,
+    userId: string,
+  ): Promise<RiskScoreDto> {
+    const portfolioRecord = await this.db.portfolio.findFirst({
       where: { id: dto.portfolioId, userId },
-      include: { holdings: true },
     });
 
-    if (!portfolio) {
-      throw new NotFoundException('Portfolio not found');
-    }
+    if (!portfolioRecord) throw new NotFoundException('Portfolio not found');
 
-    if (portfolio.holdings.length === 0) {
-      throw new BadRequestException('Portfolio has no holdings to evaluate');
-    }
-
-    // Check cache unless force refresh
     if (!dto.forceRefresh) {
-      const recentSnapshot = await this.db.riskSnapShots.findFirst({
+      const recent = await this.db.riskSnapShots.findFirst({
         where: { portfolioId: dto.portfolioId },
         orderBy: { snapShotAt: 'desc' },
       });
 
-      if (recentSnapshot) {
-        const cacheAge = Date.now() - new Date(recentSnapshot.snapShotAt).getTime();
-        if (cacheAge < this.CACHE_TTL) {
-          return this.formatRiskScore(recentSnapshot);
-        }
+      if (recent) {
+        const age = Date.now() - new Date(recent.snapShotAt).getTime();
+        if (age < this.CACHE_TTL) return this.formatRiskScore(recent);
       }
     }
 
-    // Fetch live prices
-    const symbols = portfolio.holdings.map(h => h.symbol);
-    const livePrices = await this.bayse.getMultipleAssets(symbols);
-    const priceMap = new Map(livePrices.map(p => [p.symbol, p]));
+    const baysePortfolio = await this.bayse.getPortfolio({ size: 100 });
 
-    // Build holding data for Gemini
-    const holdingsData: HoldingData[] = portfolio.holdings.map(h => {
-      const priceData = priceMap.get(h.symbol);
-      const currentPrice = priceData?.price || 0;
-      const value = currentPrice * Number(h.quantity);
+    if (baysePortfolio.positions.length === 0) {
+      throw new BadRequestException('No open positions found on Bayse to evaluate');
+    }
 
-      return {
-        symbol: h.symbol,
-        quantity: Number(h.quantity),
-        currentPrice,
-        change24h: priceData?.change24h || 0,
-        value,
-      };
-    });
+    const holdingsData = await this.buildHoldingsData(baysePortfolio);
+    const totalValue = baysePortfolio.totalCurrentValue;
 
-    const totalValue = holdingsData.reduce((sum, h) => sum + h.value, 0);
+    const [geminiAnalysis, bayseRisk] = await Promise.all([
+      this.gemini.analyzePortfolioRisk(holdingsData, totalValue),
+      this.bayse.analysePortfolioRisk(),
+    ]);
 
-    // Get Gemini risk analysis
-    const analysis = await this.gemini.analyzePortfolioRisk(holdingsData, totalValue);
+    const mergedAnomalies = [
+      ...geminiAnalysis.anomalies,
+      ...bayseRisk.flags,
+    ];
 
-    // Save snapshot
     const snapshot = await this.db.riskSnapShots.create({
       data: {
         portfolioId: dto.portfolioId,
-        overallScore: analysis.overallScore,
-        explanation: analysis.explanation,
-        holdingScores: analysis.perAssetScores.reduce((acc, s) => {
-          acc[s.symbol] = s.score;
-          return acc;
-        }, {} as Record<string, number>),
+        overallScore: geminiAnalysis.overallScore,
+        explanation: geminiAnalysis.explanation,
+        holdingScores: geminiAnalysis.perAssetScores.reduce(
+          (acc, s) => ({ ...acc, [s.symbol]: s.score }),
+          {} as Record<string, number>,
+        ),
       },
     });
 
-    // Check for triggered alerts
-    await this.checkAndTriggerAlerts(dto.portfolioId, analysis.overallScore);
+    await this.storeAnomalyFlags(dto.portfolioId, mergedAnomalies);
+    await this.checkAndTriggerAlerts(dto.portfolioId, geminiAnalysis.overallScore);
 
     return this.formatRiskScore(snapshot);
   }
 
-  /**
-   * Get risk history for a portfolio
-   * PRD: Risk History Chart (P1) - time-series of risk score
-   */
-  async getRiskHistory(dto: GetRiskHistoryDto, userId: string): Promise<RiskSnapshotDto[]> {
+  // ── Risk history ─────────────────────────────────────────────────────────
+
+  async getRiskHistory(
+    dto: GetRiskHistoryDto,
+    userId: string,
+  ): Promise<RiskSnapshotDto[]> {
     const portfolio = await this.db.portfolio.findFirst({
       where: { id: dto.portfolioId, userId },
     });
 
-    if (!portfolio) {
-      throw new NotFoundException('Portfolio not found');
-    }
+    if (!portfolio) throw new NotFoundException('Portfolio not found');
 
     const snapshots = await this.db.riskSnapShots.findMany({
       where: { portfolioId: dto.portfolioId },
@@ -122,36 +113,90 @@ export class RiskService {
     return snapshots.map(s => ({
       id: s.id,
       overallScore: s.overallScore,
+      riskLevel: this.getRiskLevel(s.overallScore), // ← fixed: was missing
       explanation: s.explanation,
       holdingScores: s.holdingScores as Record<string, number>,
       snapShotAt: s.snapShotAt.toISOString(),
     }));
   }
 
-  /**
-   * Set alert threshold for a holding
-   * PRD: Risk Alerts - user sets threshold, alert fires when crossed
-   */
+  // ── Dashboard summary ────────────────────────────────────────────────────
+
+  async getPortfolioRiskSummary(
+    portfolioId: string,
+    userId: string,
+  ): Promise<PortfolioRiskSummaryDto> {
+    const portfolioRecord = await this.db.portfolio.findFirst({
+      where: { id: portfolioId, userId },
+      include: {
+        snapshots: { orderBy: { snapShotAt: 'desc' }, take: 1 },
+      },
+    });
+
+    if (!portfolioRecord) throw new NotFoundException('Portfolio not found');
+
+    const [baysePortfolio, walletAssets, alerts, anomalies] = await Promise.all([
+      this.bayse.getPortfolio({ size: 100 }),
+      this.bayse.getWalletAssets(),
+      this.db.alertConfig.findMany({
+        where: { holdings: { portfolioId } },
+        include: { holdings: true },
+      }),
+      this.db.anomalyFlag.findMany({
+        where: { holdings: { portfolio: { id: portfolioId } }, resolved: false },
+        include: { holdings: true },
+      }),
+    ]);
+
+    const latestSnapshot = portfolioRecord.snapshots[0];
+    const riskScore = latestSnapshot
+      ? this.formatRiskScore(latestSnapshot)
+      : this.emptyRiskScore();
+
+    return {
+      portfolio: {
+        id: portfolioRecord.id,
+        name: portfolioRecord.name,
+        totalValue: baysePortfolio.totalCurrentValue,
+        totalCost: baysePortfolio.totalCost,
+        totalPercentageChange: baysePortfolio.totalPercentageChange,
+        walletUsd: walletAssets.totalUsd,
+        walletNgn: walletAssets.totalNgn,
+        openPositions: baysePortfolio.positions.length,
+      },
+      risk: riskScore,
+      alerts: alerts.map(a => ({
+        id: a.id,
+        label: a.holdings.symbol,
+        threshold: a.threshold,
+        triggered: a.triggeredAt !== null,
+        triggeredAt: a.triggeredAt?.toISOString(),
+        // ← fixed: removed stray symbol field
+      })),
+      activeAnomalies: anomalies.map(a => ({
+        label: a.holdings.symbol,
+        reason: a.reason,
+        severity: 'medium' as const,
+        // ← fixed: removed stray symbol field
+      })),
+    };
+  }
+
+  // ── Alerts ───────────────────────────────────────────────────────────────
+
   async setAlertThreshold(
     holdingId: string,
     dto: SetAlertThresholdDto,
     userId: string,
   ) {
-    // Verify holding belongs to user's portfolio
     const holding = await this.db.holdings.findFirst({
-      where: {
-        id: holdingId,
-        portfolio: { userId },
-      },
+      where: { id: holdingId, portfolio: { userId } },
     });
 
-    if (!holding) {
-      throw new NotFoundException('Holding not found');
-    }
+    if (!holding) throw new NotFoundException('Holding not found');
 
-    // Upsert alert config
     const alert = await this.db.alertConfig.upsert({
-      where: { id: holdingId }, // Using holdingId as the alert ID for simplicity
+      where: { id: holdingId },
       update: {
         threshold: dto.threshold,
         reason: dto.reason || `Alert threshold set to ${dto.threshold}`,
@@ -165,31 +210,22 @@ export class RiskService {
 
     return {
       id: alert.id,
-      symbol: holding.symbol,
+      label: holding.symbol,
       threshold: alert.threshold,
       reason: alert.reason,
       createdAt: alert.createdAt.toISOString(),
     };
   }
 
-  /**
-   * Get all alerts for user's portfolio
-   */
   async getAlerts(userId: string) {
     const alerts = await this.db.alertConfig.findMany({
-      where: {
-        holdings: {
-          portfolio: { userId },
-        },
-      },
-      include: {
-        holdings: true,
-      },
+      where: { holdings: { portfolio: { userId } } },
+      include: { holdings: true },
     });
 
     return alerts.map(a => ({
       id: a.id,
-      symbol: a.holdings.symbol,
+      label: a.holdings.symbol,
       threshold: a.threshold,
       reason: a.reason,
       triggered: a.triggeredAt !== null,
@@ -197,128 +233,32 @@ export class RiskService {
     }));
   }
 
-  /**
-   * Get full risk summary for a portfolio
-   * PRD: Daily Use Flow - dashboard with risk score, alerts, anomalies
-   */
-  async getPortfolioRiskSummary(portfolioId: string, userId: string): Promise<PortfolioRiskSummaryDto> {
-    const portfolio = await this.db.portfolio.findFirst({
-      where: { id: portfolioId, userId },
-      include: {
-        holdings: true,
-        snapshots: {
-          orderBy: { snapShotAt: 'desc' },
-          take: 1,
-        },
-      },
-    });
-
-    if (!portfolio) {
-      throw new NotFoundException('Portfolio not found');
-    }
-
-    // Get latest risk score
-    const latestSnapshot = portfolio.snapshots[0];
-    const riskScore = latestSnapshot ? await this.formatRiskScore(latestSnapshot) : null;
-
-    // Get alerts
-    const alerts = await this.db.alertConfig.findMany({
-      where: {
-        holdings: { portfolioId },
-      },
-      include: {
-        holdings: true,
-      },
-    });
-
-    // Get active anomalies
-    const anomalies = await this.db.anomalyFlag.findMany({
-      where: {
-        holdingId: { in: portfolio.holdings.map(h => h.id) },
-        resolved: false,
-      },
-      include: { holdings: true },
-    });
-
-    // Calculate total value
-    const symbols = portfolio.holdings.map(h => h.symbol);
-    const livePrices = await this.bayse.getMultipleAssets(symbols);
-    const totalValue = portfolio.holdings.reduce((sum, h) => {
-      const price = livePrices.find(p => p.symbol === h.symbol)?.price || 0;
-      return sum + price * Number(h.quantity);
-    }, 0);
-
-    return {
-      portfolio: {
-        id: portfolio.id,
-        name: portfolio.name,
-        totalValue: Math.round(totalValue * 100) / 100,
-      },
-      risk: riskScore || {
-        overallScore: 0,
-        riskLevel: RiskLevel.LOW,
-        explanation: 'No risk evaluation yet. Add holdings and trigger evaluation.',
-        reasoningPath: [],
-        anomalies: [],
-        perAssetScores: [],
-        evaluatedAt: new Date().toISOString(),
-      },
-      alerts: alerts.map(a => ({
-        id: a.id,
-        symbol: a.holdings.symbol,
-        threshold: a.threshold,
-        triggered: a.triggeredAt !== null,
-      })),
-      activeAnomalies: anomalies.map(a => ({
-        symbol: a.holdings.symbol,
-        reason: a.reason,
-        severity: 'medium', // Could be enhanced with severity field
-      })),
-    };
-  }
-
-  /**
-   * Detect and store anomalies
-   * PRD: Anomaly Detection - flag unusual price movements
-   */
   async detectAndStoreAnomalies(portfolioId: string): Promise<AlertTriggeredDto[]> {
     const portfolio = await this.db.portfolio.findFirst({
       where: { id: portfolioId },
       include: { holdings: true },
     });
 
-    if (!portfolio) {
-      throw new NotFoundException('Portfolio not found');
-    }
+    if (!portfolio) throw new NotFoundException('Portfolio not found');
 
-    const symbols = portfolio.holdings.map(h => h.symbol);
-    const anomalies = await this.bayse.detectAnomalies(symbols);
+    const bayseRisk = await this.bayse.analysePortfolioRisk();
     const triggeredAlerts: AlertTriggeredDto[] = [];
 
-    for (const anomaly of anomalies) {
-      if (!anomaly.isAnomaly) continue;
+    if (bayseRisk.flags.length === 0) return [];
 
-      const holding = portfolio.holdings.find(h => h.symbol === anomaly.symbol);
+    for (const flag of bayseRisk.flags) {
+      const holding = portfolio.holdings[0];
       if (!holding) continue;
 
-      // Store anomaly flag
       await this.db.anomalyFlag.create({
-        data: {
-          holdingId: holding.id,
-          reason: anomaly.reason,
-        },
+        data: { holdingId: holding.id, reason: flag },
       });
 
-      // Check if alert threshold crossed
       const alert = await this.db.alertConfig.findFirst({
-        where: { holdingId: holding.id },
+        where: { holdingId: holding.id, triggeredAt: null },
       });
 
-      if (alert && !alert.triggeredAt) {
-        // For now, we need to get the current risk score
-        // In production, this would be part of the evaluation flow
-        this.logger.log(`Alert triggered for ${anomaly.symbol}: ${anomaly.reason}`);
-        
+      if (alert) {
         await this.db.alertConfig.update({
           where: { id: alert.id },
           data: { triggeredAt: new Date() },
@@ -326,27 +266,70 @@ export class RiskService {
 
         triggeredAlerts.push({
           alertId: alert.id,
-          symbol: anomaly.symbol,
-          currentScore: 0, // Would come from risk evaluation
+          label: holding.symbol, // ← fixed: was symbol: holding.symbol
+          currentScore: 0,
           threshold: alert.threshold,
-          message: anomaly.reason,
+          message: flag,
           triggeredAt: new Date().toISOString(),
         });
+
+        this.logger.log(`Alert triggered: ${flag}`);
       }
     }
 
     return triggeredAlerts;
   }
 
-  /**
-   * Internal: Check and trigger alerts based on risk score
-   */
-  private async checkAndTriggerAlerts(portfolioId: string, currentScore: number): Promise<void> {
+  // ── Internals ────────────────────────────────────────────────────────────
+
+  private async buildHoldingsData(
+    portfolio: BaysePortfolioDto,
+  ): Promise<HoldingData[]> {
+    return Promise.all(
+      portfolio.positions.map(async (pos) => {
+        let change24h = 0;
+        try {
+          const ticker = await this.bayse.getMarketTicker(pos.id, pos.outcome);
+          change24h = ticker.priceChange24h;
+        } catch {
+          // ticker is best-effort — don't block the analysis
+        }
+
+        return {
+          symbol: this.shortLabel(pos.eventTitle),
+          quantity: pos.shares,
+          currentPrice: pos.averagePrice,
+          change24h,
+          value: pos.currentValue,
+        } satisfies HoldingData;
+      }),
+    );
+  }
+
+  private async storeAnomalyFlags(
+    portfolioId: string,
+    anomalies: string[],
+  ): Promise<void> {
+    if (anomalies.length === 0) return;
+
+    const firstHolding = await this.db.holdings.findFirst({
+      where: { portfolioId },
+    });
+
+    if (!firstHolding) return;
+
+    await this.db.anomalyFlag.createMany({
+      data: anomalies.map(reason => ({ holdingId: firstHolding.id, reason })),
+      skipDuplicates: true,
+    });
+  }
+
+  private async checkAndTriggerAlerts(
+    portfolioId: string,
+    currentScore: number,
+  ): Promise<void> {
     const alerts = await this.db.alertConfig.findMany({
-      where: {
-        holdings: { portfolioId },
-        triggeredAt: null,
-      },
+      where: { holdings: { portfolioId }, triggeredAt: null },
     });
 
     for (const alert of alerts) {
@@ -355,42 +338,52 @@ export class RiskService {
           where: { id: alert.id },
           data: { triggeredAt: new Date() },
         });
-        this.logger.log(`Alert triggered: score ${currentScore} >= threshold ${alert.threshold}`);
+        this.logger.log(`Alert fired: score ${currentScore} >= threshold ${alert.threshold}`);
       }
     }
   }
 
-  /**
-   * Internal: Format risk snapshot to response DTO
-   */
-  private async formatRiskScore(snapshot: any): Promise<RiskScoreDto> {
-    const perAssetScores = Object.entries(snapshot.holdingScores as Record<string, number>).map(
-      ([symbol, score]) => ({
-        symbol,
-        score,
-        riskLevel: this.getRiskLevel(score),
-        riskFactors: [], // Could be expanded with more detailed analysis
-      }),
-    );
+  private formatRiskScore(snapshot: any): RiskScoreDto {
+    const perAssetScores = Object.entries(
+      snapshot.holdingScores as Record<string, number>,
+    ).map(([symbol, score]) => ({
+      symbol,
+      score,
+      riskLevel: this.getRiskLevel(score),
+      riskFactors: [],
+    }));
 
     return {
       overallScore: snapshot.overallScore,
       riskLevel: this.getRiskLevel(snapshot.overallScore),
       explanation: snapshot.explanation,
-      reasoningPath: [], // Would come from Gemini reasoning
-      anomalies: [], // Would come from anomaly detection
+      reasoningPath: [],
+      anomalies: [],
       perAssetScores,
       evaluatedAt: snapshot.snapShotAt.toISOString(),
     };
   }
 
-  /**
-   * Internal: Convert score to risk level
-   */
+  private emptyRiskScore(): RiskScoreDto {
+    return {
+      overallScore: 0,
+      riskLevel: RiskLevel.LOW,
+      explanation: 'No risk evaluation yet. Trigger an evaluation to get started.',
+      reasoningPath: [],
+      anomalies: [],
+      perAssetScores: [],
+      evaluatedAt: new Date().toISOString(),
+    };
+  }
+
   private getRiskLevel(score: number): RiskLevel {
     if (score < 25) return RiskLevel.LOW;
     if (score < 50) return RiskLevel.MEDIUM;
     if (score < 75) return RiskLevel.HIGH;
     return RiskLevel.CRITICAL;
+  }
+
+  private shortLabel(title: string): string {
+    return title.length > 30 ? title.slice(0, 27) + '...' : title;
   }
 }

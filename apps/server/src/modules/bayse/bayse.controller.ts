@@ -1,40 +1,23 @@
 import {
   Controller,
   Get,
-  Post,
-  Body,
   Param,
   Query,
-  HttpCode,
-  HttpStatus,
   UseGuards,
+  ParseIntPipe,
+  DefaultValuePipe,
+  Delete,
 } from '@nestjs/common';
-import { BayseService } from './bayse.service';
-import {
-  GetAssetDto,
-  GetAssetHistoryDto,
-  SearchAssetsDto,
-  GetMultipleAssetsDto,
-  TimeFrame,
-} from './dto/get-asset.dto';
-import {
-  BayseAssetResponseDto,
-  BayseSearchResultDto,
-  BayseMarketTrendDto,
-  BaysePriceHistoryDto,
-  BaysePortfolioPriceDto,
-  BayseAnomalyDetectionDto,
-} from './dto/bayse-response.dto';
 import {
   ApiTags,
   ApiOperation,
   ApiResponse,
   ApiParam,
   ApiQuery,
-  ApiBody,
   ApiBearerAuth,
 } from '@nestjs/swagger';
 import { JwtGuard } from 'src/common/utils/jwt-strategy.utils';
+import { BayseService } from './bayse.service';
 
 @ApiTags('bayse')
 @Controller('bayse')
@@ -42,192 +25,182 @@ export class BayseController {
   constructor(private readonly bayseService: BayseService) {}
 
   /**
-   * Get single asset price and details
-   * PRD: Live Market Dashboard - Real-time price feed
+   * List / search prediction market events
+   * Replaces: GET /bayse/search  +  GET /bayse/assets/:symbol
    */
-  @Get('assets/:symbol')
-  @ApiOperation({ summary: 'Get single asset price and details' })
-  @ApiParam({ name: 'symbol', example: 'BTC', description: 'Asset symbol' })
-  @ApiResponse({
-    status: 200,
-    description: 'Asset price data',
-    type: BayseAssetResponseDto,
-  })
+  @Get('events')
+  @ApiOperation({ summary: 'List or search prediction market events' })
+  @ApiQuery({ name: 'keyword',  required: false, example: 'bitcoin' })
+  @ApiQuery({ name: 'category', required: false, example: 'crypto', description: 'crypto | sports | politics' })
+  @ApiQuery({ name: 'status',   required: false, example: 'open',   description: 'open | closed | resolved' })
+  @ApiQuery({ name: 'trending', required: false, type: Boolean })
+  @ApiQuery({ name: 'currency', required: false, example: 'USD', description: 'USD | NGN' })
+  @ApiQuery({ name: 'page',     required: false, example: 1 })
+  @ApiQuery({ name: 'size',     required: false, example: 20 })
+  @ApiResponse({ status: 200, description: 'Paginated list of events' })
   @ApiResponse({ status: 503, description: 'Bayse API unavailable' })
-  async getAsset(@Param() params: GetAssetDto): Promise<BayseAssetResponseDto> {
-    return this.bayseService.getAssetPrice(params.symbol);
+  async listEvents(
+    @Query('keyword')  keyword?: string,
+    @Query('category') category?: string,
+    @Query('status')   status?: string,
+    @Query('trending') trending?: string,
+    @Query('currency') currency?: 'USD' | 'NGN',
+    @Query('page', new DefaultValuePipe(1),  ParseIntPipe) page?: number,
+    @Query('size', new DefaultValuePipe(20), ParseIntPipe) size?: number,
+  ) {
+    return this.bayseService.listEvents({
+      keyword,
+      category,
+      status,
+      trending: trending === 'true',
+      currency,
+      page,
+      size,
+    });
   }
 
   /**
-   * Get multiple assets prices
-   * PRD: Portfolio Builder - compute current value per holding
+   * Get a single event by ID
+   * Replaces: GET /bayse/assets/:symbol
    */
-  @Post('assets/batch')
-  @HttpCode(HttpStatus.OK)
-  @ApiOperation({ summary: 'Get multiple assets prices' })
-  @ApiBody({ type: GetMultipleAssetsDto })
-  @ApiResponse({
-    status: 200,
-    description: 'Array of asset prices',
-    type: [BayseAssetResponseDto],
-  })
-  async getMultipleAssets(
-    @Body() body: GetMultipleAssetsDto,
-  ): Promise<BayseAssetResponseDto[]> {
-    return this.bayseService.getMultipleAssets(body.symbols);
+  @Get('events/:eventId')
+  @ApiOperation({ summary: 'Get a prediction market event by ID' })
+  @ApiParam({ name: 'eventId', example: 'a1b2c3d4-e5f6-7890-abcd-ef1234567890' })
+  @ApiResponse({ status: 200, description: 'Event details' })
+  @ApiResponse({ status: 503, description: 'Bayse API unavailable' })
+  async getEvent(@Param('eventId') eventId: string) {
+    return this.bayseService.getEvent(eventId);
   }
 
   /**
-   * Search for assets
-   * PRD: Portfolio Builder - symbol search powered by Bayse API
+   * Get a single event by slug
    */
-  @Get('search')
-  @ApiOperation({ summary: 'Search for assets by query' })
-  @ApiQuery({ name: 'q', example: 'bitcoin', description: 'Search query' })
-  @ApiResponse({
-    status: 200,
-    description: 'Search results',
-    type: [BayseSearchResultDto],
-  })
-  async searchAssets(@Query('q') query: string): Promise<BayseSearchResultDto[]> {
-    return this.bayseService.searchAssets(query);
+  @Get('events/slug/:slug')
+  @ApiOperation({ summary: 'Get a prediction market event by slug' })
+  @ApiParam({ name: 'slug', example: 'super-eagles-afcon-2026' })
+  @ApiResponse({ status: 200, description: 'Event details' })
+  async getEventBySlug(@Param('slug') slug: string) {
+    return this.bayseService.getEventBySlug(slug);
   }
 
   /**
-   * Get asset price history
-   * PRD: Risk History Chart (P1) - time-series of risk score
+   * Get real-time ticker for a market
+   * Replaces: GET /bayse/assets/:symbol/history
    */
-  @Get('assets/:symbol/history')
-  @ApiOperation({ summary: 'Get asset price history' })
-  @ApiParam({ name: 'symbol', example: 'BTC', description: 'Asset symbol' })
-  @ApiQuery({
-    name: 'timeframe',
-    enum: TimeFrame,
-    example: '24h',
-    required: false,
-  })
-  @ApiResponse({
-    status: 200,
-    description: 'Price history data',
-    type: BaysePriceHistoryDto,
-  })
-  async getAssetHistory(
-    @Param() params: GetAssetDto,
-    @Query('timeframe') timeframe?: TimeFrame,
-  ): Promise<BaysePriceHistoryDto> {
-    return this.bayseService.getAssetHistory(
-      params.symbol,
-      timeframe || TimeFrame['24H'],
-    );
+  @Get('markets/:marketId/ticker')
+  @ApiOperation({ summary: 'Get real-time ticker for a market outcome' })
+  @ApiParam({ name: 'marketId', example: 'b2c3d4e5-f6a7-8901-bcde-f12345678901' })
+  @ApiQuery({ name: 'outcome', required: false, enum: ['YES', 'NO'], example: 'YES' })
+  @ApiResponse({ status: 200, description: 'Ticker data (price, volume, spread)' })
+  async getMarketTicker(
+    @Param('marketId') marketId: string,
+    @Query('outcome') outcome: 'YES' | 'NO' = 'YES',
+  ) {
+    return this.bayseService.getMarketTicker(marketId, outcome);
   }
 
   /**
-   * Get market trends/top assets
-   * PRD: Live Market Dashboard - market overview
+   * Get trending events
+   * Replaces: GET /bayse/market/trends
    */
   @Get('market/trends')
-  @ApiOperation({ summary: 'Get market trends and top assets' })
-  @ApiQuery({ name: 'limit', example: '10', required: false })
-  @ApiResponse({
-    status: 200,
-    description: 'Market trends',
-    type: [BayseMarketTrendDto],
-  })
-  async getMarketTrends(
-    @Query('limit') limit?: number,
-  ): Promise<BayseMarketTrendDto[]> {
-    return this.bayseService.getMarketTrends(limit || 10);
+  @ApiOperation({ summary: 'Get trending prediction market events' })
+  @ApiQuery({ name: 'limit', required: false, example: 10 })
+  @ApiResponse({ status: 200, description: 'Trending events' })
+  async getTrendingEvents(
+    @Query('limit', new DefaultValuePipe(10), ParseIntPipe) limit: number,
+  ) {
+    return this.bayseService.getTrendingEvents(limit);
   }
 
   /**
-   * Calculate portfolio values with live prices
-   * PRD: Portfolio Builder - compute current value per holding
+   * Get authenticated user's portfolio positions
+   * Replaces: POST /bayse/portfolio/values
    */
-  @Post('portfolio/values')
-  @HttpCode(HttpStatus.OK)
+  @Get('portfolio')
   @UseGuards(JwtGuard)
   @ApiBearerAuth()
-  @ApiOperation({ summary: 'Calculate portfolio values with live prices' })
-  @ApiBody({
+  @ApiOperation({ summary: "Get the user's prediction market portfolio" })
+  @ApiQuery({ name: 'page', required: false, example: 1 })
+  @ApiQuery({ name: 'size', required: false, example: 20 })
+  @ApiResponse({ status: 200, description: 'Portfolio positions and summary' })
+  @ApiResponse({ status: 401, description: 'Unauthorized' })
+  async getPortfolio(
+    @Query('page', new DefaultValuePipe(1),  ParseIntPipe) page: number,
+    @Query('size', new DefaultValuePipe(20), ParseIntPipe) size: number,
+  ) {
+    return this.bayseService.getPortfolio({ page, size });
+  }
+
+  /**
+   * Get wallet balances
+   * Replaces: POST /bayse/assets/batch  (balance info only)
+   */
+  @Get('wallet')
+  @UseGuards(JwtGuard)
+  @ApiBearerAuth()
+  @ApiOperation({ summary: "Get the user's wallet balances (USD, NGN)" })
+  @ApiResponse({ status: 200, description: 'Wallet assets and balances' })
+  @ApiResponse({ status: 401, description: 'Unauthorized' })
+  async getWalletAssets() {
+    return this.bayseService.getWalletAssets();
+  }
+
+  /**
+   * Analyse portfolio risk
+   * Replaces: POST /bayse/anomalies
+   */
+  @Get('portfolio/risk')
+  @UseGuards(JwtGuard)
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'Analyse risk of current portfolio positions' })
+  @ApiResponse({
+    status: 200,
+    description: 'Risk level, flags, and summary',
     schema: {
-      type: 'object',
-      properties: {
-        holdings: {
-          type: 'array',
-          items: {
-            type: 'object',
-            properties: {
-              symbol: { type: 'string', example: 'BTC' },
-              quantity: { type: 'number', example: 2.5 },
-            },
-          },
-          example: [
-            { symbol: 'BTC', quantity: 2.5 },
-            { symbol: 'ETH', quantity: 10 },
-          ],
-        },
+      example: {
+        riskLevel: 'medium',
+        flags: ['High concentration: AFCON 2026 (72.3% of portfolio)'],
+        summary: '1 risk flag(s) detected across 3 position(s).',
       },
     },
   })
-  @ApiResponse({
-    status: 200,
-    description: 'Portfolio values with live prices',
-    type: [BaysePortfolioPriceDto],
-  })
-  async calculatePortfolioValues(
-    @Body() body: { holdings: Array<{ symbol: string; quantity: number }> },
-  ): Promise<BaysePortfolioPriceDto[]> {
-    return this.bayseService.calculatePortfolioValues(body.holdings);
+  @ApiResponse({ status: 401, description: 'Unauthorized' })
+  async analysePortfolioRisk() {
+    return this.bayseService.analysePortfolioRisk();
   }
-
+  @Get('debug')
+async debug() {
+  return {
+    publicKey: this.bayseService['publicKey'],
+    secretKey: this.bayseService['secretKey'] ? '***set***' : '***empty***',
+    baseUrl: this.bayseService['baseUrl'],
+  };
+}
   /**
-   * Detect anomalies in asset prices
-   * PRD: Anomaly Detection - flag unusual price movements/volatility spikes
-   */
-  @Post('anomalies')
-  @HttpCode(HttpStatus.OK)
-  @UseGuards(JwtGuard)
-  @ApiBearerAuth()
-  @ApiOperation({ summary: 'Detect anomalies in asset prices' })
-  @ApiBody({
-    schema: {
-      type: 'object',
-      properties: {
-        symbols: {
-          type: 'array',
-          items: { type: 'string' },
-          example: ['BTC', 'ETH', 'AAPL'],
-        },
-      },
-    },
-  })
-  @ApiResponse({
-    status: 200,
-    description: 'Detected anomalies',
-    type: [BayseAnomalyDetectionDto],
-  })
-  async detectAnomalies(
-    @Body() body: { symbols: string[] },
-  ): Promise<BayseAnomalyDetectionDto[]> {
-    return this.bayseService.detectAnomalies(body.symbols);
-  }
-
-  /**
-   * Health check for Bayse API
+   * Health check
    */
   @Get('health')
-  @ApiOperation({ summary: 'Check Bayse API health and cache status' })
-  @ApiResponse({
-    status: 200,
-    description: 'Service health status',
-  })
+  @ApiOperation({ summary: 'Bayse service health and cache status' })
+  @ApiResponse({ status: 200, description: 'Service health' })
   async healthCheck() {
-    const cacheStatus = this.bayseService.getCacheStatus();
     return {
       status: 'ok',
-      service: 'Bayse API',
-      cache: cacheStatus,
+      service: 'Bayse Markets',
+      cache: this.bayseService.getCacheStatus(),
       timestamp: new Date().toISOString(),
     };
+  }
+
+  /**
+   * Clear cache (admin/debug use)
+   */
+  @Delete('cache')
+  @UseGuards(JwtGuard)
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'Clear the Bayse service cache' })
+  async clearCache() {
+    this.bayseService.clearCache();
+    return { message: 'Cache cleared' };
   }
 }

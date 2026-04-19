@@ -1,13 +1,20 @@
 import { ApiProperty } from '@nestjs/swagger';
-import { IsString, IsNumber, Min } from 'class-validator';
+import { IsString, IsNumber, IsUUID, Min } from 'class-validator';
 
 export class AddHoldingDto {
-  @ApiProperty({ example: 'BTC', description: 'Asset symbol (e.g., BTC, ETH, AAPL)' })
-  @IsString()
-  symbol!: string;
+  @ApiProperty({
+    example: 'a1b2c3d4-e5f6-7890-abcd-ef1234567890',
+    description: 'Bayse event ID — use GET /portfolio/search to find valid event IDs',
+  })
+  @IsUUID()
+  symbol!: string; // stores Bayse eventId — field name kept for DB compatibility
 
-  @ApiProperty({ example: 2.5, description: 'Quantity of the asset', minimum: 0.000001 })
+  @ApiProperty({
+    example: 50,
+    description: 'Number of shares to add',
+    minimum: 1,
+  })
   @IsNumber()
-  @Min(0.000001)
+  @Min(1)
   quantity!: number;
 }

@@ -1,9 +1,19 @@
-// src/portfolio/portfolio.controller.ts
-import { Controller, Get, Post, Delete, Body, Param, UseGuards, Request } from '@nestjs/common';
+import {
+  Controller,
+  Get,
+  Post,
+  Delete,
+  Body,
+  Param,
+  Query,
+  Request,
+  UseGuards,
+} from '@nestjs/common';
 import { PortfolioService } from './portfolio.service';
 import { JwtGuard } from 'src/common/utils/jwt-strategy.utils';
 import { CreatePortfolioDto } from './dto/create-portfolio.dto';
 import { AddHoldingDto } from './dto/add-holding.dto';
+import { CurrentUser } from 'src/common/decorators/current-user.decorator';
 import {
   ApiTags,
   ApiOperation,
@@ -11,41 +21,36 @@ import {
   ApiParam,
   ApiBody,
   ApiBearerAuth,
+  ApiQuery,
 } from '@nestjs/swagger';
-import { CurrentUser } from 'src/common/decorators/current-user.decorator';
 
 @ApiTags('portfolio')
 @Controller('portfolio')
-@UseGuards(JwtGuard)
+@UseGuards(JwtGuard)  // once at class level — removed all duplicates
 @ApiBearerAuth()
 export class PortfolioController {
   constructor(private portfolioService: PortfolioService) {}
 
   /**
    * Create a new portfolio
-   * PRD: Portfolio Builder - user creates portfolio
    */
-
-  @UseGuards(JwtGuard)
   @Post()
   @ApiOperation({ summary: 'Create a new portfolio' })
   @ApiBody({ type: CreatePortfolioDto })
-  
   @ApiResponse({
     status: 201,
     description: 'Portfolio created successfully',
     schema: {
       example: {
         id: 'a1b2c3d4-e5f6-7890-abcd-ef1234567890',
-        name: 'My Investment Portfolio',
+        name: 'My Prediction Portfolio',
         userId: 'user123',
-        createdAt: '2025-04-17T12:00:00Z',
-        updatedAt: '2025-04-17T12:00:00Z',
+        createdAt: '2026-04-19T12:00:00Z',
+        updatedAt: '2026-04-19T12:00:00Z',
       },
     },
   })
   createPortfolio(@CurrentUser() user, @Body() dto: CreatePortfolioDto) {
-    console.log(user,"This is the current user")
     return this.portfolioService.createPortfolio(user.id, dto.name);
   }
 
@@ -61,14 +66,13 @@ export class PortfolioController {
       example: [
         {
           id: 'a1b2c3d4-e5f6-7890-abcd-ef1234567890',
-          name: 'My Investment Portfolio',
+          name: 'My Prediction Portfolio',
           userId: 'user123',
           holdings: [
-            { id: 'h1', symbol: 'BTC', quantity: 2.5 },
-            { id: 'h2', symbol: 'ETH', quantity: 10 },
+            { id: 'h1', symbol: 'a1b2c3d4-e5f6-7890-abcd-ef1234567890', quantity: 50 },
           ],
-          createdAt: '2025-04-17T12:00:00Z',
-          updatedAt: '2025-04-17T12:00:00Z',
+          createdAt: '2026-04-19T12:00:00Z',
+          updatedAt: '2026-04-19T12:00:00Z',
         },
       ],
     },
@@ -78,40 +82,76 @@ export class PortfolioController {
   }
 
   /**
-   * Get a specific portfolio with live prices
-   * PRD: Live Market Dashboard - real-time price feed
+   * Search Bayse prediction market events to add as holdings
+   * PRD: Portfolio Builder - event discovery
    */
-  @Get(':id')
-  @ApiOperation({ summary: 'Get portfolio with live market prices' })
-  @ApiParam({ name: 'id', example: 'a1b2c3d4-e5f6-7890-abcd-ef1234567890', description: 'Portfolio ID' })
+  @Get('search')
+  @ApiOperation({ summary: 'Search Bayse prediction market events' })
+  @ApiQuery({ name: 'keyword', required: true,  example: 'bitcoin' })
+  @ApiQuery({ name: 'category', required: false, example: 'crypto', description: 'crypto | sports | politics' })
   @ApiResponse({
     status: 200,
-    description: 'Portfolio with live prices',
+    description: 'Matching open events',
+    schema: {
+      example: [
+        {
+          eventId: 'a1b2c3d4-e5f6-7890-abcd-ef1234567890',
+          slug: 'btc-above-100k-june-2026',
+          title: 'Will BTC be above $100k by June 2026?',
+          category: 'crypto',
+          yesPrice: 0.62,
+          noPrice: 0.38,
+          impliedProbability: 62,
+          liquidity: 85000,
+          totalVolume: 210000,
+          resolutionDate: '2026-06-30T00:00:00Z',
+          status: 'open',
+        },
+      ],
+    },
+  })
+  searchEvents(
+    @Query('keyword') keyword: string,
+    @Query('category') category?: string,
+  ) {
+    return this.portfolioService.searchEvents(keyword, category);
+  }
+
+  /**
+   * Get a specific portfolio with live Bayse market data
+   * PRD: Live Market Dashboard
+   */
+  @Get(':id')
+  @ApiOperation({ summary: 'Get portfolio with live Bayse market data' })
+  @ApiParam({ name: 'id', example: 'a1b2c3d4-e5f6-7890-abcd-ef1234567890' })
+  @ApiResponse({
+    status: 200,
+    description: 'Portfolio with live prediction market prices',
     schema: {
       example: {
         id: 'a1b2c3d4-e5f6-7890-abcd-ef1234567890',
-        name: 'My Investment Portfolio',
+        name: 'My Prediction Portfolio',
         userId: 'user123',
         holdings: [
           {
             id: 'h1',
-            symbol: 'BTC',
-            quantity: 2.5,
-            currentPrice: 67500.5,
-            change24h: 2.5,
-            value: 168751.25,
-          },
-          {
-            id: 'h2',
-            symbol: 'ETH',
-            quantity: 10,
-            currentPrice: 3250.0,
-            change24h: -1.2,
-            value: 32500.0,
+            symbol: 'a1b2c3d4-e5f6-7890-abcd-ef1234567890',
+            eventTitle: 'Will BTC be above $100k by June 2026?',
+            outcome: 'YES',
+            quantity: 50,
+            currentPrice: 0.62,
+            currentValue: 31.0,
+            percentageChange: 7.6,
+            payoutIfWins: 50.0,
+            isLive: true,
           },
         ],
-        totalValue: 201251.25,
-        lastUpdated: '2025-04-17T12:00:00Z',
+        totalValue: 31.0,
+        totalCost: 28.8,
+        totalPercentageChange: 7.6,
+        wallet: { usd: 1250.5, ngn: 50000 },
+        openPositions: 1,
+        lastUpdated: '2026-04-19T12:00:00Z',
       },
     },
   })
@@ -121,11 +161,11 @@ export class PortfolioController {
   }
 
   /**
-   * Add a holding to a portfolio
-   * PRD: Portfolio Builder - add assets with live price verification
+   * Add a Bayse prediction market event as a holding
+   * PRD: Portfolio Builder — dto.symbol should be a Bayse eventId
    */
   @Post(':id/holdings')
-  @ApiOperation({ summary: 'Add a holding to a portfolio' })
+  @ApiOperation({ summary: 'Add a Bayse event as a holding' })
   @ApiParam({ name: 'id', example: 'a1b2c3d4-e5f6-7890-abcd-ef1234567890', description: 'Portfolio ID' })
   @ApiBody({ type: AddHoldingDto })
   @ApiResponse({
@@ -135,16 +175,20 @@ export class PortfolioController {
       example: {
         id: 'h1',
         portfolioId: 'a1b2c3d4-e5f6-7890-abcd-ef1234567890',
-        symbol: 'BTC',
-        quantity: 2.5,
-        createdAt: '2025-04-17T12:00:00Z',
-        updatedAt: '2025-04-17T12:00:00Z',
+        symbol: 'a1b2c3d4-e5f6-7890-abcd-ef1234567890', // Bayse eventId
+        quantity: 50,
+        createdAt: '2026-04-19T12:00:00Z',
+        updatedAt: '2026-04-19T12:00:00Z',
       },
     },
   })
+  @ApiResponse({ status: 400, description: 'Bayse event not found — invalid eventId' })
   @ApiResponse({ status: 404, description: 'Portfolio not found' })
-  @ApiResponse({ status: 503, description: 'Bayse API unavailable - asset verification failed' })
-  addHolding(@Request() req, @Param('id') portfolioId: string, @Body() dto: AddHoldingDto) {
+  addHolding(
+    @Request() req,
+    @Param('id') portfolioId: string,
+    @Body() dto: AddHoldingDto,
+  ) {
     return this.portfolioService.addHolding(req.user.id, portfolioId, dto);
   }
 
@@ -153,11 +197,8 @@ export class PortfolioController {
    */
   @Delete('holdings/:holdingId')
   @ApiOperation({ summary: 'Remove a holding from a portfolio' })
-  @ApiParam({ name: 'holdingId', example: 'h1', description: 'Holding ID' })
-  @ApiResponse({
-    status: 200,
-    description: 'Holding removed successfully',
-  })
+  @ApiParam({ name: 'holdingId', example: 'h1' })
+  @ApiResponse({ status: 200, description: 'Holding removed successfully' })
   @ApiResponse({ status: 404, description: 'Holding not found' })
   removeHolding(@Request() req, @Param('holdingId') holdingId: string) {
     return this.portfolioService.removeHolding(req.user.id, holdingId);

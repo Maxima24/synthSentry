@@ -26,8 +26,8 @@ export class GeminiController {
       symbol: h.symbol,
       quantity: h.quantity.toNumber(),
       currentPrice: h.currentPrice,
-      change24h: h.change24h,
-      value: h.value,
+      change24h: h.percentageChange,
+      value: h.currentValue,
     }));
     
     // Run AI risk analysis
@@ -73,8 +73,8 @@ async testGemini() {
       symbol: h.symbol,
       quantity: h.quantity.toNumber(),
       currentPrice: h.currentPrice,
-      change24h: h.change24h,
-      value: h.value,
+      change24h: h.percentageChange,
+      value: h.currentValue,
     }));
     
     return this.geminiService.simulateRiskChange(holdingsData, {
