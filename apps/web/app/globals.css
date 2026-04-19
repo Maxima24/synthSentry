@@ -64,6 +64,17 @@ body {
   100% { left: 100%; opacity: 0; }
 }
 
+@keyframes brand-bar {
+  0%, 100% { transform: scaleY(0.28); }
+  50%      { transform: scaleY(1); }
+}
+
+.animate-brand-bar {
+  animation: brand-bar 1s ease-in-out infinite;
+  transform-origin: center;
+  will-change: transform;
+}
+
 .animate-beam-flow {
   animation: beam-flow 3.6s cubic-bezier(0.4, 0, 0.2, 1) infinite;
 }
@@ -103,7 +114,8 @@ body {
   .animate-fade-in-up,
   .animate-pulse-soft,
   .animate-marquee,
-  .animate-beam-flow { animation: none; }
+  .animate-beam-flow,
+  .animate-brand-bar { animation: none; }
   .reveal { opacity: 1; transform: none; filter: none; transition: none; }
 }
 

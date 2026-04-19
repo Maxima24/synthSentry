@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { Inter } from "next/font/google";
 import localFont from "next/font/local";
 import "./globals.css";
+import { QueryProvider } from "./_lib/query-provider";
 
 const inter = Inter({
   variable: "--font-inter",
@@ -41,10 +42,8 @@ export default function RootLayout({
       lang="en"
       className={`${inter.variable} ${satoshi.variable} h-full antialiased`}
     >
-      <body className="bg-matte min-h-screen p-3 font-sans sm:p-4">
-        <div className="flex min-h-[calc(100svh-1.5rem)] flex-col overflow-hidden rounded-frame sm:min-h-[calc(100svh-2rem)]">
-          {children}
-        </div>
+      <body suppressHydrationWarning className="min-h-screen font-sans">
+        <QueryProvider>{children}</QueryProvider>
       </body>
     </html>
   );
