@@ -58,6 +58,11 @@ export function HoldingsList({ holdings, portfolioId, onAdd }: HoldingsListProps
           {holdings.slice(0, 6).map((h, i) => {
             const isDeleting =
               deleteHolding.isPending && deleteHolding.variables === h.id;
+            const label = h.eventTitle ?? h.symbol;
+            const initials = (label.match(/\b\w/g) || [])
+              .slice(0, 2)
+              .join("")
+              .toUpperCase() || "EV";
             return (
               <li
                 key={h.id}
@@ -69,29 +74,42 @@ export function HoldingsList({ holdings, portfolioId, onAdd }: HoldingsListProps
                     background: SYMBOL_COLORS[i % SYMBOL_COLORS.length],
                   }}
                 >
-                  {h.symbol.slice(0, 3).toUpperCase()}
+                  {initials}
                 </div>
                 <div className="min-w-0 flex-1">
                   <div className="truncate text-sm font-semibold text-foreground">
-                    {h.name ?? h.symbol.toUpperCase()}
+                    {label}
                   </div>
-                  <div className="text-xs text-foreground/50">
-                    {formatQty(h.quantity)} · {h.symbol.toUpperCase()}
-                  </div>
-                </div>
-                {typeof h.value === "number" ? (
-                  <div className="flex flex-col items-end text-right">
-                    <span className="text-xs font-semibold text-foreground tabular-nums">
-                      {formatUsd(h.value)}
-                    </span>
-                    {typeof h.change24h === "number" ? (
+                  <div className="flex items-center gap-1.5 text-xs text-foreground/50">
+                    {h.outcome ? (
                       <span
-                        className={`text-[10px] font-medium tabular-nums ${
-                          h.change24h >= 0 ? "text-emerald-600" : "text-rose-600"
+                        className={`rounded px-1 py-0.5 text-[9px] font-bold ${
+                          h.outcome === "YES"
+                            ? "bg-primary/20 text-primary-foreground"
+                            : "bg-rose-100 text-rose-700"
                         }`}
                       >
-                        {h.change24h >= 0 ? "+" : ""}
-                        {h.change24h.toFixed(2)}%
+                        {h.outcome}
+                      </span>
+                    ) : null}
+                    {formatQty(h.quantity)} shares
+                  </div>
+                </div>
+                {typeof h.currentValue === "number" ? (
+                  <div className="flex flex-col items-end text-right">
+                    <span className="text-xs font-semibold text-foreground tabular-nums">
+                      {formatUsd(h.currentValue)}
+                    </span>
+                    {typeof h.percentageChange === "number" ? (
+                      <span
+                        className={`text-[10px] font-medium tabular-nums ${
+                          h.percentageChange >= 0
+                            ? "text-emerald-600"
+                            : "text-rose-600"
+                        }`}
+                      >
+                        {h.percentageChange >= 0 ? "+" : ""}
+                        {h.percentageChange.toFixed(2)}%
                       </span>
                     ) : null}
                   </div>

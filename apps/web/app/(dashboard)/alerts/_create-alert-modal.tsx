@@ -100,8 +100,9 @@ export function CreateAlertModal({ open, onClose }: CreateAlertModalProps) {
             >
               {allHoldings.map((h) => (
                 <option key={h.id} value={h.id}>
-                  {h.symbol.toUpperCase()}
-                  {h.name ? ` — ${h.name}` : ""}
+                  {h.eventTitle
+                    ? `${h.outcome ? h.outcome + " · " : ""}${h.eventTitle}`
+                    : h.symbol}
                 </option>
               ))}
             </select>

@@ -13,27 +13,26 @@ import {
   deleteHolding,
   evaluateRisk,
   getAllAlerts,
-  getAsset,
-  getAssetHistory,
+  getEvent,
   getMarketTrends,
   getPortfolio,
   getRiskHistory,
   getRiskSummary,
+  getWallet,
   listPortfolios,
-  searchAssets,
+  searchEvents,
   setAlertThreshold,
 } from "./portfolio-api";
 import type {
   AlertConfig,
-  Asset,
   AuthUser,
-  MarketTrend,
+  BayseEvent,
+  EventSearchResult,
+  MarketTrendEvent,
   Portfolio,
-  PriceHistory,
   RiskSnapshot,
   RiskSummary,
-  SearchResult,
-  Timeframe,
+  Wallet,
 } from "./types";
 
 export const qk = {
@@ -44,10 +43,9 @@ export const qk = {
   riskSummary: (id: string) => ["risk", "summary", id] as const,
   alerts: ["alerts"] as const,
   marketTrends: (limit: number) => ["market", "trends", limit] as const,
-  asset: (symbol: string) => ["asset", symbol] as const,
-  assetHistory: (symbol: string, tf: Timeframe) =>
-    ["asset", symbol, "history", tf] as const,
+  event: (eventId: string) => ["event", eventId] as const,
   search: (q: string) => ["search", q] as const,
+  wallet: ["wallet"] as const,
 };
 
 const STALE = {
@@ -58,9 +56,9 @@ const STALE = {
   riskHistory: 60_000,
   alerts: 30_000,
   marketTrends: 30_000,
-  asset: 30_000,
-  assetHistory: 60_000,
+  event: 30_000,
   search: 2 * 60_000,
+  wallet: 60_000,
 };
 
 export function useMe(
@@ -118,7 +116,7 @@ export function useAlerts() {
 }
 
 export function useMarketTrends(limit = 6) {
-  return useQuery<MarketTrend[]>({
+  return useQuery<MarketTrendEvent[]>({
     queryKey: qk.marketTrends(limit),
     queryFn: () => getMarketTrends(limit),
     staleTime: STALE.marketTrends,
@@ -126,36 +124,32 @@ export function useMarketTrends(limit = 6) {
   });
 }
 
-export function useAsset(symbol: string | null | undefined) {
-  return useQuery<Asset>({
-    queryKey: qk.asset((symbol ?? "").toUpperCase()),
-    queryFn: () => getAsset(symbol as string),
-    enabled: !!symbol,
-    staleTime: STALE.asset,
+export function useEvent(eventId: string | null | undefined) {
+  return useQuery<BayseEvent>({
+    queryKey: qk.event(eventId ?? ""),
+    queryFn: () => getEvent(eventId as string),
+    enabled: !!eventId,
+    staleTime: STALE.event,
     retry: false,
   });
 }
 
-export function useAssetHistory(
-  symbol: string | null | undefined,
-  timeframe: Timeframe
-) {
-  return useQuery<PriceHistory>({
-    queryKey: qk.assetHistory((symbol ?? "").toUpperCase(), timeframe),
-    queryFn: () => getAssetHistory(symbol as string, timeframe),
-    enabled: !!symbol,
-    staleTime: STALE.assetHistory,
-    retry: false,
-  });
-}
-
-export function useAssetSearch(query: string) {
+export function useEventSearch(query: string) {
   const trimmed = query.trim();
-  return useQuery<SearchResult[]>({
+  return useQuery<EventSearchResult[]>({
     queryKey: qk.search(trimmed),
-    queryFn: () => searchAssets(trimmed),
+    queryFn: () => searchEvents(trimmed),
     enabled: trimmed.length > 0,
     staleTime: STALE.search,
+    retry: false,
+  });
+}
+
+export function useWallet() {
+  return useQuery<Wallet>({
+    queryKey: qk.wallet,
+    queryFn: getWallet,
+    staleTime: STALE.wallet,
     retry: false,
   });
 }
@@ -173,8 +167,8 @@ export function useCreatePortfolio() {
 export function useAddHolding(portfolioId: string) {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (input: { symbol: string; quantity: number }) =>
-      addHolding(portfolioId, input.symbol, input.quantity),
+    mutationFn: (input: { eventId: string; quantity: number }) =>
+      addHolding(portfolioId, input.eventId, input.quantity),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: qk.portfolio(portfolioId) });
       qc.invalidateQueries({ queryKey: qk.portfolios });
@@ -230,3 +224,6 @@ export function useInvalidateAll() {
     qc.invalidateQueries();
   };
 }
+
+/** Backwards-compat alias — callers still use useAssetSearch name. */
+export const useAssetSearch = useEventSearch;

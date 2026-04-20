@@ -11,7 +11,7 @@ import { useRouter } from "next/navigation";
 import { useDeferredValue, useEffect, useRef, useState } from "react";
 import { BrandLoader } from "../../_components/brand-loader";
 import { useAssetSearch } from "../../_lib/queries";
-import type { SearchResult } from "../../_lib/types";
+import type { EventSearchResult } from "../../_lib/types";
 
 interface SearchDialogProps {
   open: boolean;
@@ -50,9 +50,9 @@ export function SearchDialog({ open, onClose }: SearchDialogProps) {
     if (!open) setQuery("");
   }, [open]);
 
-  function handleSelect(r: SearchResult) {
+  function handleSelect(r: EventSearchResult) {
     onClose();
-    router.push(`/market?symbol=${encodeURIComponent(r.symbol)}`);
+    router.push(`/market?eventId=${encodeURIComponent(r.eventId)}`);
   }
 
   if (!open) return null;
@@ -109,30 +109,45 @@ export function SearchDialog({ open, onClose }: SearchDialogProps) {
             <Empty message={`No results for "${deferredQuery}".`} />
           ) : (
             <ul className="flex flex-col gap-1">
-              {results.map((r) => (
-                <li key={`${r.type}-${r.symbol}`}>
-                  <button
-                    type="button"
-                    onClick={() => handleSelect(r)}
-                    className="flex w-full cursor-pointer items-center gap-3 rounded-xl px-3 py-2.5 text-left transition-colors hover:bg-black/[0.04] focus-visible:bg-black/[0.04] focus-visible:outline-none"
-                  >
-                    <span className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-black/[0.04] font-display text-xs font-bold text-foreground">
-                      {r.symbol.slice(0, 3).toUpperCase()}
-                    </span>
-                    <span className="min-w-0 flex-1">
-                      <span className="block truncate text-sm font-semibold text-foreground">
-                        {r.name}
+              {results.map((r) => {
+                const initials =
+                  (r.title.match(/\b\w/g) || [])
+                    .slice(0, 2)
+                    .join("")
+                    .toUpperCase() || "EV";
+                return (
+                  <li key={r.eventId}>
+                    <button
+                      type="button"
+                      onClick={() => handleSelect(r)}
+                      className="flex w-full cursor-pointer items-center gap-3 rounded-xl px-3 py-2.5 text-left transition-colors hover:bg-black/[0.04] focus-visible:bg-black/[0.04] focus-visible:outline-none"
+                    >
+                      <span className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-black/[0.04] font-display text-xs font-bold text-foreground">
+                        {initials}
                       </span>
-                      <span className="block text-xs text-foreground/50">
-                        {r.symbol.toUpperCase()} · {r.type}
+                      <span className="min-w-0 flex-1">
+                        <span className="block truncate text-sm font-semibold text-foreground">
+                          {r.title}
+                        </span>
+                        <span className="flex items-center gap-2 text-xs text-foreground/50">
+                          <span className="uppercase tracking-wider">
+                            {r.category}
+                          </span>
+                          <span>·</span>
+                          <span className="tabular-nums">
+                            YES {Math.round(r.yesPrice * 100)}¢
+                          </span>
+                          <span>·</span>
+                          <span className="capitalize">{r.status}</span>
+                        </span>
                       </span>
-                    </span>
-                    <span className="hidden rounded-md border border-black/[0.06] bg-white px-1.5 py-0.5 text-[10px] font-medium text-foreground/50 sm:inline">
-                      ↵
-                    </span>
-                  </button>
-                </li>
-              ))}
+                      <span className="hidden rounded-md border border-black/[0.06] bg-white px-1.5 py-0.5 text-[10px] font-medium text-foreground/50 sm:inline">
+                        ↵
+                      </span>
+                    </button>
+                  </li>
+                );
+              })}
             </ul>
           )}
         </div>

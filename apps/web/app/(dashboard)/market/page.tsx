@@ -11,19 +11,22 @@ import { useCallback, useDeferredValue, useState } from "react";
 import { BrandLoader } from "../../_components/brand-loader";
 import { PageHead } from "../_components/page-head";
 import { useAssetSearch, useMarketTrends } from "../../_lib/queries";
-import type { MarketTrend, SearchResult } from "../../_lib/types";
+import type { EventSearchResult, MarketTrendEvent } from "../../_lib/types";
 import { AssetDetailPanel } from "./_asset-detail-panel";
 
 export default function MarketPage() {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const activeSymbol = searchParams.get("symbol");
+  const activeEventId = searchParams.get("eventId");
 
   const [query, setQuery] = useState("");
   const deferredQuery = useDeferredValue(query);
 
-  const { data: trends = [], error: trendsError, isLoading: trendsLoading } =
-    useMarketTrends(12);
+  const {
+    data: trends = [],
+    error: trendsError,
+    isLoading: trendsLoading,
+  } = useMarketTrends(12);
 
   const {
     data: results = [],
@@ -31,10 +34,10 @@ export default function MarketPage() {
     isFetching: searching,
   } = useAssetSearch(deferredQuery);
 
-  const selectSymbol = useCallback(
-    (symbol: string) => {
+  const selectEvent = useCallback(
+    (eventId: string) => {
       const params = new URLSearchParams(searchParams.toString());
-      params.set("symbol", symbol);
+      params.set("eventId", eventId);
       router.push(`/market?${params.toString()}`);
     },
     [router, searchParams]
@@ -48,7 +51,7 @@ export default function MarketPage() {
     <div className="mx-auto w-full max-w-7xl">
       <PageHead
         title="Market"
-        subtitle="Live prices from Bayse · search any asset"
+        subtitle="Live prediction markets · powered by Bayse"
       />
 
       <div className="mt-8 flex items-center gap-3 rounded-xl border border-black/[0.08] bg-white px-4 py-3 shadow-[0_8px_30px_rgba(0,0,0,0.04)] focus-within:border-foreground/30">
@@ -60,7 +63,7 @@ export default function MarketPage() {
           type="text"
           value={query}
           onChange={(e) => setQuery(e.target.value)}
-          placeholder="Search bitcoin, ETH, AAPL, TSLA…"
+          placeholder="Search events — bitcoin, AFCON, election…"
           className="flex-1 bg-transparent text-sm text-foreground placeholder:text-foreground/40 focus:outline-none"
         />
         {searching && deferredQuery.trim() ? (
@@ -73,27 +76,27 @@ export default function MarketPage() {
           results={results}
           error={searchError}
           loading={searching}
-          onSelect={selectSymbol}
+          onSelect={selectEvent}
         />
       ) : null}
 
       <div
         className={`mt-8 grid grid-cols-1 gap-5 ${
-          activeSymbol ? "xl:grid-cols-12" : ""
+          activeEventId ? "xl:grid-cols-12" : ""
         }`}
       >
-        <div className={activeSymbol ? "xl:col-span-7" : ""}>
+        <div className={activeEventId ? "xl:col-span-7" : ""}>
           <TrendsSection
             trends={trends}
             loading={trendsLoading}
             error={trendsError}
-            activeSymbol={activeSymbol}
-            onSelect={selectSymbol}
+            activeEventId={activeEventId}
+            onSelect={selectEvent}
           />
         </div>
-        {activeSymbol ? (
+        {activeEventId ? (
           <div className="xl:col-span-5">
-            <AssetDetailPanel symbol={activeSymbol} onClose={clearSelection} />
+            <AssetDetailPanel eventId={activeEventId} onClose={clearSelection} />
           </div>
         ) : null}
       </div>
@@ -107,10 +110,10 @@ function SearchResults({
   loading,
   onSelect,
 }: {
-  results: SearchResult[];
+  results: EventSearchResult[];
   error: unknown;
   loading: boolean;
-  onSelect: (symbol: string) => void;
+  onSelect: (eventId: string) => void;
 }) {
   if (error) {
     return (
@@ -123,28 +126,28 @@ function SearchResults({
   if (!loading && results.length === 0) {
     return (
       <div className="mt-4 rounded-xl border border-dashed border-black/[0.08] bg-black/[0.015] px-4 py-4 text-sm text-foreground/55">
-        No results. Try another ticker or name.
+        No markets match that query.
       </div>
     );
   }
   return (
     <ul className="mt-4 grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-3">
       {results.slice(0, 9).map((r) => (
-        <li key={`${r.type}-${r.symbol}`}>
+        <li key={r.eventId}>
           <button
             type="button"
-            onClick={() => onSelect(r.symbol)}
-            className="flex w-full cursor-pointer items-center gap-3 rounded-xl border border-black/[0.05] bg-white px-3 py-2.5 text-left transition-colors hover:border-foreground/20 hover:bg-black/[0.02]"
+            onClick={() => onSelect(r.eventId)}
+            className="flex w-full cursor-pointer flex-col items-start gap-1.5 rounded-xl border border-black/[0.05] bg-white px-3 py-2.5 text-left transition-colors hover:border-foreground/20 hover:bg-black/[0.02]"
           >
-            <span className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-black/[0.05] font-display text-xs font-bold text-foreground">
-              {r.symbol.slice(0, 3).toUpperCase()}
+            <span className="line-clamp-2 text-sm font-semibold text-foreground">
+              {r.title}
             </span>
-            <span className="min-w-0 flex-1">
-              <span className="block truncate text-sm font-semibold text-foreground">
-                {r.name}
+            <span className="flex items-center gap-2 text-[11px] text-foreground/55">
+              <span className="rounded-full bg-black/[0.04] px-1.5 py-0.5 font-semibold uppercase tracking-wider">
+                {r.category}
               </span>
-              <span className="block text-[11px] text-foreground/50">
-                {r.symbol.toUpperCase()} · {r.type}
+              <span className="tabular-nums">
+                YES {Math.round(r.yesPrice * 100)}¢
               </span>
             </span>
           </button>
@@ -158,14 +161,14 @@ function TrendsSection({
   trends,
   loading,
   error,
-  activeSymbol,
+  activeEventId,
   onSelect,
 }: {
-  trends: MarketTrend[];
+  trends: MarketTrendEvent[];
   loading: boolean;
   error: unknown;
-  activeSymbol: string | null;
-  onSelect: (symbol: string) => void;
+  activeEventId: string | null;
+  onSelect: (eventId: string) => void;
 }) {
   return (
     <section className="overflow-hidden rounded-card border border-black/[0.05] bg-white shadow-[0_8px_30px_rgba(0,0,0,0.04)]">
@@ -175,7 +178,7 @@ function TrendsSection({
             Trending
           </h3>
           <p className="mt-0.5 text-xs text-foreground/50">
-            Top movers · 24h
+            Most active prediction events
           </p>
         </div>
       </div>
@@ -196,46 +199,47 @@ function TrendsSection({
       ) : (
         <ul className="divide-y divide-black/[0.04]">
           {trends.map((t) => {
-            const positive = (t.change24h ?? 0) >= 0;
-            const active = activeSymbol === t.symbol;
+            const bullish = t.trend === "bullish";
+            const active = activeEventId === t.eventId;
             return (
-              <li key={t.symbol}>
+              <li key={t.eventId}>
                 <button
                   type="button"
-                  onClick={() => onSelect(t.symbol)}
-                  className={`flex w-full cursor-pointer items-center gap-3 px-6 py-3.5 text-left transition-colors ${
-                    active
-                      ? "bg-primary/10"
-                      : "hover:bg-black/[0.015]"
+                  onClick={() => onSelect(t.eventId)}
+                  className={`flex w-full cursor-pointer items-start gap-3 px-6 py-3.5 text-left transition-colors ${
+                    active ? "bg-primary/10" : "hover:bg-black/[0.015]"
                   }`}
                 >
-                  <span className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-black/[0.04] font-display text-xs font-bold text-foreground">
-                    {t.symbol.slice(0, 3).toUpperCase()}
-                  </span>
                   <span className="min-w-0 flex-1">
-                    <span className="block truncate text-sm font-semibold text-foreground">
-                      {t.name}
+                    <span className="line-clamp-2 text-sm font-semibold text-foreground">
+                      {t.title}
                     </span>
-                    <span className="block text-[11px] text-foreground/50">
-                      {t.symbol.toUpperCase()}
-                      {t.trend ? ` · ${t.trend}` : ""}
+                    <span className="mt-0.5 flex items-center gap-2 text-[11px] text-foreground/55">
+                      <span className="rounded-full bg-black/[0.04] px-1.5 py-0.5 font-semibold uppercase tracking-wider">
+                        {t.category}
+                      </span>
+                      <span className="tabular-nums">
+                        ${formatCompactUsd(t.liquidity)} liq
+                      </span>
                     </span>
                   </span>
-                  <span className="text-right text-sm font-semibold tabular-nums text-foreground">
-                    {formatUsd(t.price)}
-                  </span>
-                  <span
-                    className={`inline-flex min-w-[72px] items-center justify-center gap-1 rounded-full px-2 py-1 text-xs font-semibold tabular-nums ${
-                      positive
-                        ? "bg-emerald-100 text-emerald-700"
-                        : "bg-rose-100 text-rose-700"
-                    }`}
-                  >
-                    <HugeiconsIcon
-                      icon={positive ? ArrowUp04Icon : ArrowDown04Icon}
-                      className="size-3"
-                    />
-                    {Math.abs(t.change24h ?? 0).toFixed(2)}%
+                  <span className="flex flex-col items-end gap-1">
+                    <span className="font-display text-sm font-semibold tabular-nums text-foreground">
+                      {Math.round(t.yesPrice * 100)}¢
+                    </span>
+                    <span
+                      className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-semibold capitalize ${
+                        bullish
+                          ? "bg-emerald-100 text-emerald-700"
+                          : "bg-rose-100 text-rose-700"
+                      }`}
+                    >
+                      <HugeiconsIcon
+                        icon={bullish ? ArrowUp04Icon : ArrowDown04Icon}
+                        className="size-3"
+                      />
+                      {t.trend}
+                    </span>
                   </span>
                 </button>
               </li>
@@ -247,12 +251,9 @@ function TrendsSection({
   );
 }
 
-function formatUsd(n: number): string {
-  if (!Number.isFinite(n)) return "—";
-  if (n < 1) return `$${n.toFixed(4)}`;
-  return n.toLocaleString(undefined, {
-    style: "currency",
-    currency: "USD",
-    maximumFractionDigits: n < 100 ? 2 : 0,
-  });
+function formatCompactUsd(n: number): string {
+  if (!Number.isFinite(n) || n === 0) return "0";
+  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
+  if (n >= 1_000) return `${(n / 1_000).toFixed(1)}k`;
+  return n.toFixed(0);
 }

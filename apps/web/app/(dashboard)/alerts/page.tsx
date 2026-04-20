@@ -119,8 +119,14 @@ function AlertSection({
                       {a.threshold}
                     </span>
                   </span>
-                  <span>Holding: {a.holdingId.slice(0, 8)}…</span>
-                  <span>Created {formatRelative(a.createdAt)}</span>
+                  {a.label ? (
+                    <span className="truncate">Market: {a.label}</span>
+                  ) : a.holdingId ? (
+                    <span>Holding: {a.holdingId.slice(0, 8)}…</span>
+                  ) : null}
+                  {a.createdAt ? (
+                    <span>Created {formatRelative(a.createdAt)}</span>
+                  ) : null}
                   {a.triggeredAt ? (
                     <span className="font-semibold text-amber-700">
                       Triggered {formatRelative(a.triggeredAt)}

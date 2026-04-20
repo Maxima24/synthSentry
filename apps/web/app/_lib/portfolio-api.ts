@@ -4,16 +4,15 @@ import { apiFetch } from "./api";
 import type {
   AlertConfig,
   ApiEnvelope,
-  Asset,
+  BayseEvent,
+  EventSearchResult,
   Holding,
-  MarketTrend,
+  MarketTrendEvent,
   Portfolio,
-  PriceHistory,
   RiskScore,
   RiskSnapshot,
   RiskSummary,
-  SearchResult,
-  Timeframe,
+  Wallet,
 } from "./types";
 
 export async function listPortfolios(): Promise<Portfolio[]> {
@@ -36,6 +35,35 @@ export async function createPortfolio(name: string): Promise<Portfolio> {
     json: { name },
   });
   return unwrap<Portfolio>(res);
+}
+
+export async function addHolding(
+  portfolioId: string,
+  eventId: string,
+  quantity: number
+): Promise<Holding> {
+  const res = await apiFetch<ApiEnvelope<Holding> | Holding>(
+    `/portfolio/${portfolioId}/holdings`,
+    { method: "POST", json: { symbol: eventId, quantity } }
+  );
+  return unwrap<Holding>(res);
+}
+
+export async function deleteHolding(holdingId: string): Promise<void> {
+  await apiFetch<unknown>(`/portfolio/holdings/${holdingId}`, {
+    method: "DELETE",
+  });
+}
+
+export async function evaluateRisk(
+  portfolioId: string,
+  forceRefresh = false
+): Promise<RiskScore> {
+  const res = await apiFetch<ApiEnvelope<RiskScore> | RiskScore>(
+    "/risk/evaluate",
+    { method: "POST", json: { portfolioId, forceRefresh } }
+  );
+  return unwrap<RiskScore>(res);
 }
 
 export async function getRiskHistory(
@@ -63,71 +91,6 @@ export async function getAllAlerts(): Promise<AlertConfig[]> {
   return unwrap<AlertConfig[]>(res);
 }
 
-export async function addHolding(
-  portfolioId: string,
-  symbol: string,
-  quantity: number
-): Promise<Holding> {
-  const res = await apiFetch<ApiEnvelope<Holding> | Holding>(
-    `/portfolio/${portfolioId}/holdings`,
-    { method: "POST", json: { symbol, quantity } }
-  );
-  return unwrap<Holding>(res);
-}
-
-export async function deleteHolding(holdingId: string): Promise<void> {
-  await apiFetch<unknown>(`/portfolio/holdings/${holdingId}`, {
-    method: "DELETE",
-  });
-}
-
-export async function evaluateRisk(
-  portfolioId: string,
-  forceRefresh = false
-): Promise<RiskScore> {
-  const res = await apiFetch<ApiEnvelope<RiskScore> | RiskScore>(
-    "/risk/evaluate",
-    { method: "POST", json: { portfolioId, forceRefresh } }
-  );
-  return unwrap<RiskScore>(res);
-}
-
-export async function getMarketTrends(limit = 6): Promise<MarketTrend[]> {
-  const res = await apiFetch<ApiEnvelope<MarketTrend[]> | MarketTrend[]>(
-    `/bayse/market/trends?limit=${limit}`,
-    { auth: false }
-  );
-  return unwrap<MarketTrend[]>(res);
-}
-
-export async function searchAssets(query: string): Promise<SearchResult[]> {
-  if (!query.trim()) return [];
-  const res = await apiFetch<ApiEnvelope<SearchResult[]> | SearchResult[]>(
-    `/bayse/search?q=${encodeURIComponent(query)}`,
-    { auth: false }
-  );
-  return unwrap<SearchResult[]>(res);
-}
-
-export async function getAsset(symbol: string): Promise<Asset> {
-  const res = await apiFetch<ApiEnvelope<Asset> | Asset>(
-    `/bayse/assets/${encodeURIComponent(symbol)}`,
-    { auth: false }
-  );
-  return unwrap<Asset>(res);
-}
-
-export async function getAssetHistory(
-  symbol: string,
-  timeframe: Timeframe = "24h"
-): Promise<PriceHistory> {
-  const res = await apiFetch<ApiEnvelope<PriceHistory> | PriceHistory>(
-    `/bayse/assets/${encodeURIComponent(symbol)}/history?timeframe=${timeframe}`,
-    { auth: false }
-  );
-  return unwrap<PriceHistory>(res);
-}
-
 export async function setAlertThreshold(
   holdingId: string,
   threshold: number,
@@ -137,6 +100,42 @@ export async function setAlertThreshold(
     method: "POST",
     json: { threshold, ...(reason ? { reason } : {}) },
   });
+}
+
+export async function getMarketTrends(
+  limit = 6
+): Promise<MarketTrendEvent[]> {
+  const res = await apiFetch<
+    ApiEnvelope<MarketTrendEvent[]> | MarketTrendEvent[]
+  >(`/bayse/market/trends?limit=${limit}`, { auth: false });
+  return unwrap<MarketTrendEvent[]>(res);
+}
+
+export async function searchEvents(
+  keyword: string,
+  category?: string
+): Promise<EventSearchResult[]> {
+  const trimmed = keyword.trim();
+  if (!trimmed) return [];
+  const params = new URLSearchParams({ keyword: trimmed });
+  if (category) params.set("category", category);
+  const res = await apiFetch<
+    ApiEnvelope<EventSearchResult[]> | EventSearchResult[]
+  >(`/portfolio/search?${params.toString()}`);
+  return unwrap<EventSearchResult[]>(res);
+}
+
+export async function getEvent(eventId: string): Promise<BayseEvent> {
+  const res = await apiFetch<ApiEnvelope<BayseEvent> | BayseEvent>(
+    `/bayse/events/${encodeURIComponent(eventId)}`,
+    { auth: false }
+  );
+  return unwrap<BayseEvent>(res);
+}
+
+export async function getWallet(): Promise<Wallet> {
+  const res = await apiFetch<ApiEnvelope<Wallet> | Wallet>("/bayse/wallet");
+  return unwrap<Wallet>(res);
 }
 
 function unwrap<T>(res: ApiEnvelope<T> | T): T {

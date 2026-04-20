@@ -115,40 +115,59 @@ export function PortfolioRow({
               {detail.holdings.map((h) => {
                 const isDeleting =
                   deleteHolding.isPending && deleteHolding.variables === h.id;
+                const label = h.eventTitle ?? h.symbol;
+                const initials =
+                  (label.match(/\b\w/g) || [])
+                    .slice(0, 3)
+                    .join("")
+                    .toUpperCase() || "EV";
                 return (
                   <li
                     key={h.id}
                     className="group flex items-center gap-3 px-4 py-3"
                   >
                     <span className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-black/[0.05] font-display text-[10px] font-bold text-foreground">
-                      {h.symbol.slice(0, 4).toUpperCase()}
+                      {initials}
                     </span>
                     <div className="min-w-0 flex-1">
-                      <div className="truncate text-sm font-semibold text-foreground">
-                        {h.name ?? h.symbol.toUpperCase()}
+                      <div className="flex items-center gap-1.5">
+                        <span className="truncate text-sm font-semibold text-foreground">
+                          {label}
+                        </span>
+                        {h.outcome ? (
+                          <span
+                            className={`shrink-0 rounded px-1 py-0.5 text-[9px] font-bold ${
+                              h.outcome === "YES"
+                                ? "bg-primary/20 text-primary-foreground"
+                                : "bg-rose-100 text-rose-700"
+                            }`}
+                          >
+                            {h.outcome}
+                          </span>
+                        ) : null}
                       </div>
                       <div className="text-xs text-foreground/50">
-                        {formatQty(h.quantity)} {h.symbol.toUpperCase()}
+                        {formatQty(h.quantity)} shares
                         {typeof h.currentPrice === "number" ? (
-                          <> · {formatUsd(h.currentPrice)}</>
+                          <> · {formatSharePrice(h.currentPrice)} / share</>
                         ) : null}
                       </div>
                     </div>
-                    {typeof h.value === "number" ? (
+                    {typeof h.currentValue === "number" ? (
                       <div className="flex flex-col items-end">
                         <span className="text-sm font-semibold text-foreground tabular-nums">
-                          {formatUsd(h.value)}
+                          {formatUsd(h.currentValue)}
                         </span>
-                        {typeof h.change24h === "number" ? (
+                        {typeof h.percentageChange === "number" ? (
                           <span
                             className={`text-[10px] font-medium tabular-nums ${
-                              h.change24h >= 0
+                              h.percentageChange >= 0
                                 ? "text-emerald-600"
                                 : "text-rose-600"
                             }`}
                           >
-                            {h.change24h >= 0 ? "+" : ""}
-                            {h.change24h.toFixed(2)}%
+                            {h.percentageChange >= 0 ? "+" : ""}
+                            {h.percentageChange.toFixed(2)}%
                           </span>
                         ) : null}
                       </div>
@@ -193,6 +212,11 @@ function formatQty(q: number | string): string {
   const n = typeof q === "string" ? Number(q) : q;
   if (!Number.isFinite(n)) return String(q);
   return n.toLocaleString(undefined, { maximumFractionDigits: 4 });
+}
+
+function formatSharePrice(n: number): string {
+  if (!Number.isFinite(n)) return "—";
+  return `$${n.toFixed(2)}`;
 }
 
 function formatDate(iso: string): string {

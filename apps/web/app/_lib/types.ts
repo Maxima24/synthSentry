@@ -20,16 +20,23 @@ export interface ApiEnvelope<T> {
 }
 
 export type RiskLevel = "low" | "medium" | "high" | "critical";
+export type AnomalySeverity = "low" | "medium" | "high";
+export type Outcome = "YES" | "NO";
 
 export interface Holding {
   id: string;
-  name?: string | null;
   symbol: string;
+  eventTitle?: string;
+  outcome?: Outcome;
   quantity: number | string;
-  portfolioId?: string;
   currentPrice?: number;
-  change24h?: number;
-  value?: number;
+  currentValue?: number;
+  percentageChange?: number;
+  payoutIfWins?: number;
+  isLive?: boolean;
+  portfolioId?: string;
+  createdAt?: string;
+  updatedAt?: string;
 }
 
 export interface Portfolio {
@@ -40,15 +47,19 @@ export interface Portfolio {
   updatedAt: string;
   holdings?: Holding[];
   totalValue?: number;
+  totalCost?: number;
+  totalPercentageChange?: number;
+  wallet?: { usd: number; ngn: number };
+  openPositions?: number;
   lastUpdated?: string;
 }
 
 export interface RiskSnapshot {
   id: string;
-  portfolioId: string;
   overallScore: number;
+  riskLevel: RiskLevel;
   explanation: string;
-  holdingScores?: unknown;
+  holdingScores: Record<string, number>;
   snapShotAt: string;
 }
 
@@ -69,58 +80,116 @@ export interface RiskScore {
   evaluatedAt: string;
 }
 
-export interface AlertConfig {
+export interface PortfolioSummaryField {
   id: string;
-  holdingId: string;
+  name: string;
+  totalValue: number;
+  totalCost?: number;
+  totalPercentageChange?: number;
+  walletUsd?: number;
+  walletNgn?: number;
+  openPositions?: number;
+}
+
+export interface AlertSummary {
+  id: string;
+  label: string;
   threshold: number;
-  reason: string;
+  triggered: boolean;
   triggeredAt?: string | null;
-  createdAt: string;
+}
+
+export interface AnomalySummary {
+  label: string;
+  reason: string;
+  severity: AnomalySeverity;
 }
 
 export interface RiskSummary {
-  portfolio?: { id: string; name: string; totalValue: number };
+  portfolio?: PortfolioSummaryField;
   risk?: RiskScore;
-  alerts?: string[];
-  activeAnomalies?: string[];
+  alerts?: AlertSummary[];
+  activeAnomalies?: AnomalySummary[];
 }
 
-export interface MarketTrend {
+export interface AlertConfig {
+  id: string;
+  label?: string;
+  holdingId?: string;
+  threshold: number;
+  triggered?: boolean;
+  triggeredAt?: string | null;
+  reason?: string;
+  createdAt?: string;
+}
+
+export interface MarketTrendEvent {
+  eventId: string;
+  title: string;
+  category: string;
+  yesPrice: number;
+  totalVolume: number;
+  liquidity: number;
+  trend: "bullish" | "bearish" | string;
+}
+
+export interface EventSearchResult {
+  eventId: string;
+  slug: string;
+  title: string;
+  category: string;
+  yesPrice: number;
+  noPrice: number;
+  impliedProbability: number;
+  liquidity: number;
+  totalVolume: number;
+  resolutionDate: string;
+  status: string;
+}
+
+export interface EventMarketOutcome {
+  id: string;
+  title: string;
+  outcome1Id: string;
+  outcome1Label: string;
+  outcome1Price: number;
+  outcome2Id: string;
+  outcome2Label: string;
+  outcome2Price: number;
+  yesBuyPrice?: number;
+  noBuyPrice?: number;
+  status?: string;
+  imageUrl?: string;
+}
+
+export interface BayseEvent {
+  id: string;
+  slug: string;
+  title: string;
+  description?: string;
+  category: string;
+  status: string;
+  resolutionDate?: string;
+  liquidity: number;
+  totalVolume: number;
+  totalOrders?: number;
+  yesPrice: number;
+  noPrice: number;
+  impliedProbability: number;
+  markets?: EventMarketOutcome[];
+}
+
+export interface WalletAsset {
   symbol: string;
-  name: string;
-  price: number;
-  change24h: number;
-  trend?: string;
-  volatility?: number;
+  availableBalance: number;
+  pendingBalance: number;
+  isDefault: boolean;
+  depositActive: boolean;
+  withdrawalActive: boolean;
 }
 
-export interface SearchResult {
-  symbol: string;
-  name: string;
-  type: string;
+export interface Wallet {
+  assets: WalletAsset[];
+  totalUsd: number;
+  totalNgn: number;
 }
-
-export interface Asset {
-  symbol: string;
-  name: string;
-  price: number;
-  change24h: number;
-  volume: number;
-  marketCap: number;
-  currency: string;
-  type: string;
-}
-
-export interface PricePoint {
-  timestamp: string;
-  price: number;
-  volume?: number;
-}
-
-export interface PriceHistory {
-  symbol: string;
-  timeframe: string;
-  data: PricePoint[];
-}
-
-export type Timeframe = "1h" | "24h" | "7d" | "30d";
