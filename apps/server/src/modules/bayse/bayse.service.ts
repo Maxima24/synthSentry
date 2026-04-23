@@ -22,6 +22,8 @@ interface BayseMarket {
   marketThreshold?: number;
   marketThresholdRange?: string;
   marketCloseValue?: number;
+  // derived helper — populated by transformEvent
+  outcome?: 'YES' | 'NO';
 }
 
 interface BayseEvent {
@@ -115,6 +117,21 @@ interface BayseWalletAsset {
 
 // ── DTO shapes ─────────────────────────────────────────────────────────────────
 
+export interface BayseMarketDto {
+  id: string;
+  title: string;
+  status: string;
+  outcome1Label: string;
+  outcome1Price: number;
+  outcome2Label: string;
+  outcome2Price: number;
+  yesBuyPrice: number;
+  noBuyPrice: number;
+  totalOrders: number;
+  // default outcome for this market (always YES for first market)
+  outcome: 'YES' | 'NO';
+}
+
 export interface BayseEventDto {
   id: string;
   slug: string;
@@ -129,7 +146,7 @@ export interface BayseEventDto {
   yesPrice: number;
   noPrice: number;
   impliedProbability: number;
-  markets: BayseMarket[];
+  markets: BayseMarketDto[];
 }
 
 export interface BaysePortfolioDto {
@@ -209,12 +226,10 @@ export class BayseService {
 
   // ── Auth header builders ───────────────────────────────────────────────────
 
-  /** Public endpoints — no auth needed */
   private publicHeaders(): HeadersInit {
     return { 'Content-Type': 'application/json' };
   }
 
-  /** Read endpoints — X-Public-Key only */
   private readHeaders(): HeadersInit {
     return {
       'X-Public-Key': this.publicKey,
@@ -222,11 +237,6 @@ export class BayseService {
     };
   }
 
-  /**
-   * Write endpoints — X-Public-Key + X-Timestamp + X-Signature
-   * Signing payload: {timestamp}.{METHOD}.{path}.{bodyHash}
-   * bodyHash = SHA-256 hex of raw body, or '' if no body
-   */
   private writeHeaders(method: string, path: string, body?: string): HeadersInit {
     const timestamp = Math.floor(Date.now() / 1000).toString();
     const bodyHash = body
@@ -256,7 +266,9 @@ export class BayseService {
   ): Promise<T> {
     const url = new URL(`${this.baseUrl}${path}`);
     if (params) {
-      Object.entries(params).forEach(([k, v]) => url.searchParams.set(k, String(v)));
+      Object.entries(params).forEach(([k, v]) =>
+        url.searchParams.set(k, String(v)),
+      );
     }
 
     const cacheKey = `${authLevel}:${url.toString()}`;
@@ -265,20 +277,26 @@ export class BayseService {
       return cached.data as T;
     }
 
-    const headers = authLevel === 'read' ? this.readHeaders() : this.publicHeaders();
+    const headers =
+      authLevel === 'read' ? this.readHeaders() : this.publicHeaders();
     const response = await fetch(url.toString(), { headers });
 
     if (!response.ok) {
       const body = await response.json().catch(() => ({}));
-      throw new Error(`Bayse ${response.status}: ${(body as any).message || response.statusText}`);
+      throw new Error(
+        `Bayse ${response.status}: ${(body as any).message || response.statusText}`,
+      );
     }
 
-    const data = await response.json() as T;
+    const data = (await response.json()) as T;
     this.cache.set(cacheKey, { data, ts: Date.now() });
     return data;
   }
 
-  private async post<T>(path: string, body: Record<string, unknown>): Promise<T> {
+  private async post<T>(
+    path: string,
+    body: Record<string, unknown>,
+  ): Promise<T> {
     const rawBody = JSON.stringify(body);
     const response = await fetch(`${this.baseUrl}${path}`, {
       method: 'POST',
@@ -288,7 +306,9 @@ export class BayseService {
 
     if (!response.ok) {
       const err = await response.json().catch(() => ({}));
-      throw new Error(`Bayse ${response.status}: ${(err as any).message || response.statusText}`);
+      throw new Error(
+        `Bayse ${response.status}: ${(err as any).message || response.statusText}`,
+      );
     }
 
     return response.json() as Promise<T>;
@@ -302,7 +322,9 @@ export class BayseService {
 
     if (!response.ok) {
       const err = await response.json().catch(() => ({}));
-      throw new Error(`Bayse ${response.status}: ${(err as any).message || response.statusText}`);
+      throw new Error(
+        `Bayse ${response.status}: ${(err as any).message || response.statusText}`,
+      );
     }
 
     return response.json() as Promise<T>;
@@ -316,32 +338,36 @@ export class BayseService {
 
   // ── Public methods ─────────────────────────────────────────────────────────
 
-  /** Public — no auth required, optional X-Public-Key for personalization */
-  async listEvents(opts: {
-    keyword?: string;
-    category?: string;
-    status?: string;
-    trending?: boolean;
-    currency?: 'USD' | 'NGN';
-    page?: number;
-    size?: number;
-  } = {}): Promise<{ events: BayseEventDto[]; totalCount: number; lastPage: number }> {
+  async listEvents(
+    opts: {
+      keyword?: string;
+      category?: string;
+      status?: string;
+      trending?: boolean;
+      currency?: 'USD' | 'NGN';
+      page?: number;
+      size?: number;
+    } = {},
+  ): Promise<{
+    events: BayseEventDto[];
+    totalCount: number;
+    lastPage: number;
+  }> {
     try {
       const params: Record<string, string | number | boolean> = {
         currency: opts.currency ?? 'USD',
         page: opts.page ?? 1,
         size: opts.size ?? 20,
       };
-      if (opts.keyword)  params.keyword  = opts.keyword;
+      if (opts.keyword) params.keyword = opts.keyword;
       if (opts.category) params.category = opts.category;
-      if (opts.status)   params.status   = opts.status;
+      if (opts.status) params.status = opts.status;
       if (opts.trending) params.trending = true;
 
-      const data = await this.get<{ events: BayseEvent[]; pagination: any }>(
-        '/pm/events',
-        params,
-        'public', // public endpoint — X-Public-Key optional
-      );
+      const data = await this.get<{
+        events: BayseEvent[];
+        pagination: any;
+      }>('/pm/events', params, 'public');
 
       return {
         events: data.events.map(this.transformEvent),
@@ -353,28 +379,36 @@ export class BayseService {
     }
   }
 
-  /** Public */
   async getEvent(eventId: string): Promise<BayseEventDto> {
     try {
-      const data = await this.get<BayseEvent>(`/pm/events/${eventId}`, undefined, 'public');
+      const data = await this.get<BayseEvent>(
+        `/pm/events/${eventId}`,
+        undefined,
+        'public',
+      );
       return this.transformEvent(data);
     } catch (e) {
       this.handleError(`getEvent(${eventId})`, e);
     }
   }
 
-  /** Public */
   async getEventBySlug(slug: string): Promise<BayseEventDto> {
     try {
-      const data = await this.get<BayseEvent>(`/pm/events/slug/${slug}`, undefined, 'public');
+      const data = await this.get<BayseEvent>(
+        `/pm/events/slug/${slug}`,
+        undefined,
+        'public',
+      );
       return this.transformEvent(data);
     } catch (e) {
       this.handleError(`getEventBySlug(${slug})`, e);
     }
   }
 
-  /** Public — no auth needed for ticker */
-  async getMarketTicker(marketId: string, outcome: 'YES' | 'NO' = 'YES'): Promise<BayseTickerDto> {
+  async getMarketTicker(
+    marketId: string,
+    outcome: 'YES' | 'NO' = 'YES',
+  ): Promise<BayseTickerDto> {
     try {
       const data = await this.get<BayseTickerResponse>(
         `/pm/markets/${marketId}/ticker`,
@@ -397,36 +431,49 @@ export class BayseService {
     }
   }
 
-  /** Public — trending events */
   async getTrendingEvents(limit = 10): Promise<BayseMarketTrendDto[]> {
     try {
-      const { events } = await this.listEvents({ trending: true, size: limit, status: 'open' });
-      return events.map(e => ({
+      const { events } = await this.listEvents({
+        trending: true,
+        size: limit,
+        status: 'open',
+      });
+      return events.map((e) => ({
         eventId: e.id,
         title: e.title,
         category: e.category,
         yesPrice: e.yesPrice,
         totalVolume: e.totalVolume,
         liquidity: e.liquidity,
-        trend: e.yesPrice > 0.5 ? 'bullish' : e.yesPrice < 0.5 ? 'bearish' : 'neutral',
+        trend:
+          e.yesPrice > 0.5
+            ? 'bullish'
+            : e.yesPrice < 0.5
+              ? 'bearish'
+              : 'neutral',
       }));
     } catch (e) {
       this.handleError('getTrendingEvents', e);
     }
   }
 
-  /** Read auth — requires X-Public-Key */
-  async getPortfolio(opts: { page?: number; size?: number } = {}): Promise<BaysePortfolioDto> {
+  async getPortfolio(
+    opts: { page?: number; size?: number } = {},
+  ): Promise<BaysePortfolioDto> {
     try {
       const data = await this.get<{
         outcomeBalances: BaysePortfolioPosition[];
         portfolioCost: number;
         portfolioCurrentValue: number;
         portfolioPercentageChange: number;
-      }>('/pm/portfolio', { page: opts.page ?? 1, size: opts.size ?? 20 }, 'read');
+      }>(
+        '/pm/portfolio',
+        { page: opts.page ?? 1, size: opts.size ?? 20 },
+        'read',
+      );
 
       return {
-        positions: data.outcomeBalances.map(p => ({
+        positions: data.outcomeBalances.map((p) => ({
           id: p.id,
           eventTitle: p.market.event.title,
           marketTitle: p.market.title,
@@ -448,7 +495,6 @@ export class BayseService {
     }
   }
 
-  /** Read auth — requires X-Public-Key */
   async getWalletAssets(): Promise<BayseWalletDto> {
     try {
       const data = await this.get<{ assets: BayseWalletAsset[] }>(
@@ -457,11 +503,11 @@ export class BayseService {
         'read',
       );
 
-      const usdAsset = data.assets.find(a => a.symbol === 'USD');
-      const ngnAsset = data.assets.find(a => a.symbol === 'NGN');
+      const usdAsset = data.assets.find((a) => a.symbol === 'USD');
+      const ngnAsset = data.assets.find((a) => a.symbol === 'NGN');
 
       return {
-        assets: data.assets.map(a => ({
+        assets: data.assets.map((a) => ({
           symbol: a.symbol,
           availableBalance: a.availableBalance,
           pendingBalance: a.pendingBalance,
@@ -477,7 +523,6 @@ export class BayseService {
     }
   }
 
-  /** Rule-based portfolio risk — uses getPortfolio (read auth) */
   async analysePortfolioRisk(): Promise<{
     riskLevel: 'low' | 'medium' | 'high';
     flags: string[];
@@ -493,32 +538,40 @@ export class BayseService {
     for (const pos of portfolio.positions) {
       const share = pos.cost / portfolio.totalCost;
       if (share > 0.5) {
-        flags.push(`High concentration: ${pos.eventTitle} (${(share * 100).toFixed(1)}% of portfolio)`);
+        flags.push(
+          `High concentration: ${pos.eventTitle} (${(share * 100).toFixed(1)}% of portfolio)`,
+        );
       }
     }
 
-    const longShots = portfolio.positions.filter(p => p.averagePrice < 0.2);
+    const longShots = portfolio.positions.filter((p) => p.averagePrice < 0.2);
     if (longShots.length > 0) {
-      flags.push(`${longShots.length} long-shot position(s) with <20% implied probability`);
+      flags.push(
+        `${longShots.length} long-shot position(s) with <20% implied probability`,
+      );
     }
 
-    const losers = portfolio.positions.filter(p => p.percentageChange < -20);
+    const losers = portfolio.positions.filter((p) => p.percentageChange < -20);
     if (losers.length > 0) {
       flags.push(`${losers.length} position(s) down more than 20%`);
     }
 
     if (portfolio.totalPercentageChange < -15) {
-      flags.push(`Portfolio is down ${Math.abs(portfolio.totalPercentageChange).toFixed(1)}% overall`);
+      flags.push(
+        `Portfolio is down ${Math.abs(portfolio.totalPercentageChange).toFixed(1)}% overall`,
+      );
     }
 
-    const riskLevel = flags.length === 0 ? 'low' : flags.length <= 2 ? 'medium' : 'high';
+    const riskLevel =
+      flags.length === 0 ? 'low' : flags.length <= 2 ? 'medium' : 'high';
 
     return {
       riskLevel,
       flags,
-      summary: flags.length === 0
-        ? 'Portfolio looks well-balanced with no major risk flags.'
-        : `${flags.length} risk flag(s) detected across ${portfolio.positions.length} position(s).`,
+      summary:
+        flags.length === 0
+          ? 'Portfolio looks well-balanced with no major risk flags.'
+          : `${flags.length} risk flag(s) detected across ${portfolio.positions.length} position(s).`,
     };
   }
 
@@ -551,7 +604,20 @@ export class BayseService {
       yesPrice: firstMarket?.outcome1Price ?? 0,
       noPrice: firstMarket?.outcome2Price ?? 0,
       impliedProbability: (firstMarket?.outcome1Price ?? 0) * 100,
-      markets: e.markets,
+      // expose markets as BayseMarketDto so addHolding can read marketId + outcome
+      markets: (e.markets ?? []).map((m) => ({
+        id: m.id,
+        title: m.title,
+        status: m.status,
+        outcome1Label: m.outcome1Label,
+        outcome1Price: m.outcome1Price,
+        outcome2Label: m.outcome2Label,
+        outcome2Price: m.outcome2Price,
+        yesBuyPrice: m.yesBuyPrice,
+        noBuyPrice: m.noBuyPrice,
+        totalOrders: m.totalOrders,
+        outcome: 'YES' as const, // first market defaults to YES side
+      })),
     };
   }
 }

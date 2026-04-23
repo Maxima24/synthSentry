@@ -26,7 +26,7 @@ export class GeminiController {
       symbol: h.symbol,
       quantity: h.quantity.toNumber(),
       currentPrice: h.currentPrice,
-      change24h: h.percentageChange,
+      change24h: h.change24h,
       value: h.currentValue,
     }));
     
@@ -73,7 +73,7 @@ async testGemini() {
       symbol: h.symbol,
       quantity: h.quantity.toNumber(),
       currentPrice: h.currentPrice,
-      change24h: h.percentageChange,
+      change24h: h.change24h,
       value: h.currentValue,
     }));
     
