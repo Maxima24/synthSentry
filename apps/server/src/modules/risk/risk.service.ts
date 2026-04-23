@@ -5,7 +5,7 @@ import {
   BadRequestException,
 } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
-import { BayseService, BaysePortfolioDto } from '../bayse/bayse.service';
+import { BayseService } from '../bayse/bayse.service';
 import { GeminiService, HoldingData } from '../gemini/gemini.service';
 import {
   EvaluateRiskDto,
@@ -19,7 +19,7 @@ import {
   AlertTriggeredDto,
   PortfolioRiskSummaryDto,
 } from './dto/risk-response.dto';
-
+import { Prisma } from "@prisma/client";
 @Injectable()
 export class RiskService {
   private readonly logger = new Logger(RiskService.name);
@@ -37,12 +37,21 @@ export class RiskService {
     dto: EvaluateRiskDto,
     userId: string,
   ): Promise<RiskScoreDto> {
-    const portfolioRecord = await this.db.portfolio.findFirst({
+    // 1. confirm portfolio belongs to user
+    const portfolio = await this.db.portfolio.findFirst({
       where: { id: dto.portfolioId, userId },
+      include: { holdings: true },
     });
 
-    if (!portfolioRecord) throw new NotFoundException('Portfolio not found');
+    if (!portfolio) throw new NotFoundException('Portfolio not found');
 
+    if (portfolio.holdings.length === 0) {
+      throw new BadRequestException(
+        'Portfolio has no holdings. Add assets before evaluating risk.',
+      );
+    }
+
+    // 2. return cached snapshot if fresh enough
     if (!dto.forceRefresh) {
       const recent = await this.db.riskSnapShots.findFirst({
         where: { portfolioId: dto.portfolioId },
@@ -55,25 +64,32 @@ export class RiskService {
       }
     }
 
-    const baysePortfolio = await this.bayse.getPortfolio({ size: 100 });
+    // 3. enrich db holdings with live Bayse market data
+    const holdingsData = await this.buildHoldingsFromDb(portfolio.holdings);
+    const totalValue = holdingsData.reduce((sum, h) => sum + h.value, 0);
 
-    if (baysePortfolio.positions.length === 0) {
-      throw new BadRequestException('No open positions found on Bayse to evaluate');
+    if (totalValue === 0) {
+      throw new BadRequestException(
+        'Could not compute portfolio value. Check that your holdings have valid symbols.',
+      );
     }
 
-    const holdingsData = await this.buildHoldingsData(baysePortfolio);
-    const totalValue = baysePortfolio.totalCurrentValue;
+    // 4. run Gemini analysis
+    const geminiAnalysis = await this.gemini.analyzePortfolioRisk(
+      holdingsData,
+      totalValue,
+    );
 
-    const [geminiAnalysis, bayseRisk] = await Promise.all([
-      this.gemini.analyzePortfolioRisk(holdingsData, totalValue),
-      this.bayse.analysePortfolioRisk(),
-    ]);
+    // 5. optionally merge Bayse risk flags if available
+    let mergedAnomalies = [...geminiAnalysis.anomalies];
+    try {
+      const bayseRisk = await this.bayse.analysePortfolioRisk();
+      mergedAnomalies = [...mergedAnomalies, ...bayseRisk.flags];
+    } catch {
+      this.logger.warn('Bayse risk analysis unavailable — using Gemini anomalies only');
+    }
 
-    const mergedAnomalies = [
-      ...geminiAnalysis.anomalies,
-      ...bayseRisk.flags,
-    ];
-
+    // 6. persist snapshot
     const snapshot = await this.db.riskSnapShots.create({
       data: {
         portfolioId: dto.portfolioId,
@@ -86,6 +102,7 @@ export class RiskService {
       },
     });
 
+    // 7. store anomalies and check alert thresholds
     await this.storeAnomalyFlags(dto.portfolioId, mergedAnomalies);
     await this.checkAndTriggerAlerts(dto.portfolioId, geminiAnalysis.overallScore);
 
@@ -110,10 +127,10 @@ export class RiskService {
       take: dto.limit || 10,
     });
 
-    return snapshots.map(s => ({
+    return snapshots.map((s) => ({
       id: s.id,
       overallScore: s.overallScore,
-      riskLevel: this.getRiskLevel(s.overallScore), // ← fixed: was missing
+      riskLevel: this.getRiskLevel(s.overallScore),
       explanation: s.explanation,
       holdingScores: s.holdingScores as Record<string, number>,
       snapShotAt: s.snapShotAt.toISOString(),
@@ -129,15 +146,28 @@ export class RiskService {
     const portfolioRecord = await this.db.portfolio.findFirst({
       where: { id: portfolioId, userId },
       include: {
+        holdings: true,
         snapshots: { orderBy: { snapShotAt: 'desc' }, take: 1 },
       },
     });
 
     if (!portfolioRecord) throw new NotFoundException('Portfolio not found');
 
-    const [baysePortfolio, walletAssets, alerts, anomalies] = await Promise.all([
-      this.bayse.getPortfolio({ size: 100 }),
-      this.bayse.getWalletAssets(),
+    const holdingsData = await this.buildHoldingsFromDb(portfolioRecord.holdings);
+    const totalValue = holdingsData.reduce((sum, h) => sum + h.value, 0);
+
+    // wallet assets are best-effort
+    let walletUsd = 0;
+    let walletNgn = 0;
+    try {
+      const walletAssets = await this.bayse.getWalletAssets();
+      walletUsd = walletAssets.totalUsd;
+      walletNgn = walletAssets.totalNgn;
+    } catch {
+      this.logger.warn('Could not fetch wallet assets from Bayse');
+    }
+
+    const [alerts, anomalies] = await Promise.all([
       this.db.alertConfig.findMany({
         where: { holdings: { portfolioId } },
         include: { holdings: true },
@@ -157,27 +187,25 @@ export class RiskService {
       portfolio: {
         id: portfolioRecord.id,
         name: portfolioRecord.name,
-        totalValue: baysePortfolio.totalCurrentValue,
-        totalCost: baysePortfolio.totalCost,
-        totalPercentageChange: baysePortfolio.totalPercentageChange,
-        walletUsd: walletAssets.totalUsd,
-        walletNgn: walletAssets.totalNgn,
-        openPositions: baysePortfolio.positions.length,
+        totalValue,
+        totalCost: 0,
+        totalPercentageChange: 0,
+        walletUsd,
+        walletNgn,
+        openPositions: portfolioRecord.holdings.length,
       },
       risk: riskScore,
-      alerts: alerts.map(a => ({
+      alerts: alerts.map((a) => ({
         id: a.id,
         label: a.holdings.symbol,
         threshold: a.threshold,
         triggered: a.triggeredAt !== null,
         triggeredAt: a.triggeredAt?.toISOString(),
-        // ← fixed: removed stray symbol field
       })),
-      activeAnomalies: anomalies.map(a => ({
+      activeAnomalies: anomalies.map((a) => ({
         label: a.holdings.symbol,
         reason: a.reason,
         severity: 'medium' as const,
-        // ← fixed: removed stray symbol field
       })),
     };
   }
@@ -223,7 +251,7 @@ export class RiskService {
       include: { holdings: true },
     });
 
-    return alerts.map(a => ({
+    return alerts.map((a) => ({
       id: a.id,
       label: a.holdings.symbol,
       threshold: a.threshold,
@@ -233,7 +261,9 @@ export class RiskService {
     }));
   }
 
-  async detectAndStoreAnomalies(portfolioId: string): Promise<AlertTriggeredDto[]> {
+  async detectAndStoreAnomalies(
+    portfolioId: string,
+  ): Promise<AlertTriggeredDto[]> {
     const portfolio = await this.db.portfolio.findFirst({
       where: { id: portfolioId },
       include: { holdings: true },
@@ -241,12 +271,21 @@ export class RiskService {
 
     if (!portfolio) throw new NotFoundException('Portfolio not found');
 
-    const bayseRisk = await this.bayse.analysePortfolioRisk();
     const triggeredAlerts: AlertTriggeredDto[] = [];
 
-    if (bayseRisk.flags.length === 0) return [];
+    let flags: string[] = [];
+    try {
+      const bayseRisk = await this.bayse.analysePortfolioRisk();
+      flags = bayseRisk.flags;
+    } catch {
+      this.logger.warn('Bayse anomaly detection unavailable');
+      return [];
+    }
 
-    for (const flag of bayseRisk.flags) {
+    if (flags.length === 0) return [];
+
+    for (const flag of flags) {
+      // attach anomaly to first holding as a portfolio-level flag
       const holding = portfolio.holdings[0];
       if (!holding) continue;
 
@@ -266,7 +305,7 @@ export class RiskService {
 
         triggeredAlerts.push({
           alertId: alert.id,
-          label: holding.symbol, // ← fixed: was symbol: holding.symbol
+          label: holding.symbol,
           currentScore: 0,
           threshold: alert.threshold,
           message: flag,
@@ -282,30 +321,46 @@ export class RiskService {
 
   // ── Internals ────────────────────────────────────────────────────────────
 
-  private async buildHoldingsData(
-    portfolio: BaysePortfolioDto,
-  ): Promise<HoldingData[]> {
-    return Promise.all(
-      portfolio.positions.map(async (pos) => {
-        let change24h = 0;
-        try {
-          const ticker = await this.bayse.getMarketTicker(pos.id, pos.outcome);
-          change24h = ticker.priceChange24h;
-        } catch {
-          // ticker is best-effort — don't block the analysis
-        }
+  private async buildHoldingsFromDb(
+  holdings: Array<{
+    id: string;
+    symbol: string;
+    quantity: Prisma.Decimal;
+    outcome: "YES" | 'NO';
+    marketId: string | null;
+  }>,
+): Promise<HoldingData[]> {
+  return Promise.all(
+    holdings.map(async (holding) => {
+      let currentPrice = 0;
+      let change24h = 0;
 
-        return {
-          symbol: this.shortLabel(pos.eventTitle),
-          quantity: pos.shares,
-          currentPrice: pos.averagePrice,
-          change24h,
-          value: pos.currentValue,
-        } satisfies HoldingData;
-      }),
-    );
-  }
+      try {
+        const ticker = await this.bayse.getMarketTicker(
+          holding.symbol,
+          holding.outcome ?? 'YES',
+        );
+        // fix field name to whatever BayseTickerDto actually has
+       currentPrice = ticker.lastPrice;
+change24h = ticker.priceChange24h;
+      } catch {
+        this.logger.warn(
+          `Could not fetch Bayse ticker for ${holding.symbol} — defaulting to 0`,
+        );
+      }
 
+      const qty = holding.quantity.toNumber(); // Decimal → number
+
+      return {
+        symbol: holding.symbol,
+        quantity: qty,
+        currentPrice,
+        change24h,
+        value: qty * currentPrice,
+      } satisfies HoldingData;
+    }),
+  );
+}
   private async storeAnomalyFlags(
     portfolioId: string,
     anomalies: string[],
@@ -319,7 +374,7 @@ export class RiskService {
     if (!firstHolding) return;
 
     await this.db.anomalyFlag.createMany({
-      data: anomalies.map(reason => ({ holdingId: firstHolding.id, reason })),
+      data: anomalies.map((reason) => ({ holdingId: firstHolding.id, reason })),
       skipDuplicates: true,
     });
   }
@@ -338,7 +393,9 @@ export class RiskService {
           where: { id: alert.id },
           data: { triggeredAt: new Date() },
         });
-        this.logger.log(`Alert fired: score ${currentScore} >= threshold ${alert.threshold}`);
+        this.logger.log(
+          `Alert fired: score ${currentScore} >= threshold ${alert.threshold}`,
+        );
       }
     }
   }
@@ -368,7 +425,8 @@ export class RiskService {
     return {
       overallScore: 0,
       riskLevel: RiskLevel.LOW,
-      explanation: 'No risk evaluation yet. Trigger an evaluation to get started.',
+      explanation:
+        'No risk evaluation yet. Trigger an evaluation to get started.',
       reasoningPath: [],
       anomalies: [],
       perAssetScores: [],
@@ -381,9 +439,5 @@ export class RiskService {
     if (score < 50) return RiskLevel.MEDIUM;
     if (score < 75) return RiskLevel.HIGH;
     return RiskLevel.CRITICAL;
-  }
-
-  private shortLabel(title: string): string {
-    return title.length > 30 ? title.slice(0, 27) + '...' : title;
   }
 }

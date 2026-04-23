@@ -10,6 +10,10 @@ enum Role {
   USER
   ADMIN
 }
+enum Outcome {
+  YES 
+  NO
+}
 
 model User {
   id         String      @id @default(uuid())
@@ -38,7 +42,7 @@ model Holdings {
   symbol      String        // Bayse eventId
   eventTitle  String?       // "Will BTC hit $100k by June 2026?"
   marketId    String?       // Bayse marketId — used for ticker calls
-  outcome     String?       // "YES" | "NO"
+  outcome     Outcome       @default(NO)
   quantity    Decimal
   portfolioId String
   portfolio   Portfolio     @relation(references: [id], fields: [portfolioId], onDelete: Cascade)
