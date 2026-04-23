@@ -4,6 +4,7 @@ import { CreatePortfolioDto } from './dto/create-portfolio.dto';
 import { AddHoldingDto } from './dto/add-holding.dto';
 import { PrismaService } from '../prisma/prisma.service';
 import { LoggerService } from 'src/logger/logger.service';
+import { Outcome } from '@prisma/client';
 
 @Injectable()
 export class PortfolioService {
@@ -34,11 +35,6 @@ export class PortfolioService {
     });
   }
 
-  /**
-   * Add a holding — now stores a Bayse event/market ID instead of a stock symbol.
-   * dto.symbol should be a Bayse eventId or marketId.
-   * We verify it exists on Bayse before storing.
-   */
   async addHolding(userId: string, portfolioId: string, dto: AddHoldingDto) {
     const portfolio = await this.db.portfolio.findFirst({
       where: { id: portfolioId, userId },
@@ -46,8 +42,7 @@ export class PortfolioService {
 
     if (!portfolio) throw new NotFoundException('Portfolio not found');
 
-    // Verify the event exists on Bayse before storing
-    // dto.symbol now holds a Bayse eventId
+    // Verify the event exists on Bayse and grab its marketId + outcome
     const event = await this.bayse.getEvent(dto.symbol).catch(() => null);
     if (!event) {
       throw new BadRequestException(
@@ -55,7 +50,12 @@ export class PortfolioService {
       );
     }
 
-    // Store eventId as symbol + event title as a label for display
+    // Pull the first market from the event to get marketId and outcome
+    // so getMarketTicker works correctly during risk evaluation
+    const marketId = event.markets?.[0]?.id ?? null;
+    const outcome = event.markets?.[0]?.outcome ?? 'YES';
+    const eventTitle = event.title ?? dto.symbol;
+
     return this.db.holdings.upsert({
       where: {
         symbol_portfolioId: {
@@ -65,10 +65,16 @@ export class PortfolioService {
       },
       update: {
         quantity: { increment: dto.quantity },
+        marketId,
+        outcome,
+        eventTitle,
       },
       create: {
         portfolioId,
-        symbol: dto.symbol,           // Bayse eventId
+        symbol: dto.symbol,     // Bayse eventId
+        marketId,               // used by getMarketTicker
+        outcome,                // YES | NO
+        eventTitle,             // display label
         quantity: dto.quantity,
       },
     });
@@ -91,11 +97,6 @@ export class PortfolioService {
     return this.db.holdings.delete({ where: { id: holdingId } });
   }
 
-  /**
-   * Get portfolio enriched with live Bayse data.
-   * Replaces the old getMultipleAssets() call — now pulls the full
-   * Bayse PM portfolio and wallet alongside the DB holdings.
-   */
   async getPortfolioWithLivePrices(portfolioId: string, userId: string) {
     const portfolio = await this.db.portfolio.findFirst({
       where: { id: portfolioId, userId },
@@ -104,33 +105,53 @@ export class PortfolioService {
 
     if (!portfolio) throw new NotFoundException('Portfolio not found');
 
-    // Fetch live PM portfolio + wallet in parallel
-    const [baysePortfolio, walletAssets] = await Promise.all([
-      this.bayse.getPortfolio({ size: 100 }),
-      this.bayse.getWalletAssets(),
-    ]);
+    // enrich each holding with live ticker data using stored marketId
+    const holdingsWithValue = await Promise.all(
+      portfolio.holdings.map(async (holding) => {
+        let currentPrice = 0;
+        let change24h = 0;
 
-    // Match DB holdings to live Bayse positions by eventId (stored in symbol)
-    // Bayse positions are keyed by market/event; we match on event title or id
-    const holdingsWithValue = portfolio.holdings.map((holding) => {
-      // Find matching live position — symbol stores the Bayse eventId
-      const livePosition = baysePortfolio.positions.find((pos) =>
-        pos.eventTitle.includes(holding.symbol) || holding.symbol.includes(pos.id ?? ''),
-      );
+        if (holding.marketId) {
+          try {
+            const ticker = await this.bayse.getMarketTicker(
+              holding.marketId,
+              holding.outcome ?? 'YES',
+            );
+            currentPrice = ticker.lastPrice;
+            change24h = ticker.priceChange24h;
+          } catch {
+            this.logger.warn(
+              `Ticker fetch failed for marketId ${holding.marketId}`,
+              'PortfolioService',
+            );
+          }
+        }
 
-      return {
-        ...holding,
-        eventTitle: livePosition?.eventTitle ?? holding.symbol,
-        outcome: livePosition?.outcome ?? null,
-        currentPrice: livePosition?.averagePrice ?? 0,     // implied probability
-        currentValue: livePosition?.currentValue ?? 0,
-        percentageChange: livePosition?.percentageChange ?? 0,
-        payoutIfWins: livePosition?.payoutIfWins ?? 0,
-        isLive: !!livePosition,
-      };
-    });
+        const qty = Number(holding.quantity);
 
-    const totalValue = baysePortfolio.totalCurrentValue;
+        return {
+          ...holding,
+          eventTitle: holding.eventTitle ?? holding.symbol,
+          currentPrice,
+          change24h,
+          currentValue: qty * currentPrice,
+          isLive: currentPrice > 0,
+        };
+      }),
+    );
+
+    const totalValue = holdingsWithValue.reduce((sum, h) => sum + h.currentValue, 0);
+
+    // wallet is best-effort
+    let walletUsd = 0;
+    let walletNgn = 0;
+    try {
+      const walletAssets = await this.bayse.getWalletAssets();
+      walletUsd = walletAssets.totalUsd;
+      walletNgn = walletAssets.totalNgn;
+    } catch {
+      this.logger.warn('Could not fetch wallet assets', 'PortfolioService');
+    }
 
     return {
       id: portfolio.id,
@@ -138,21 +159,15 @@ export class PortfolioService {
       userId: portfolio.userId,
       holdings: holdingsWithValue,
       totalValue,
-      totalCost: baysePortfolio.totalCost,
-      totalPercentageChange: baysePortfolio.totalPercentageChange,
       wallet: {
-        usd: walletAssets.totalUsd,
-        ngn: walletAssets.totalNgn,
+        usd: walletUsd,
+        ngn: walletNgn,
       },
-      openPositions: baysePortfolio.positions.length,
+      openPositions: portfolio.holdings.length,
       lastUpdated: new Date(),
     };
   }
 
-  /**
-   * Search for events to add as holdings.
-   * Replaces the old asset search — now searches Bayse prediction market events.
-   */
   async searchEvents(keyword: string, category?: string) {
     if (!keyword?.trim()) {
       throw new BadRequestException('Search keyword is required');
@@ -165,7 +180,6 @@ export class PortfolioService {
       size: 20,
     });
 
-    // Return a slim shape useful for the "add holding" UI
     return events.map((e) => ({
       eventId: e.id,
       slug: e.slug,
