@@ -1,13 +1,13 @@
 {
   "name": "synthSentry",
   "private": true,
-  "workspaces"
-:  [
-"apps/*","packages/*"
-],
-"scripts": {
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
     "build": "turbo run build",
-    "dev": "turbo run dev --parallel",
+    "dev": "node api.js && turbo run dev --parallel",
     "lint": "turbo run lint",
     "format": "prettier --write \"**/*.{ts,tsx,md}\"",
     "check-types": "turbo run check-types"
