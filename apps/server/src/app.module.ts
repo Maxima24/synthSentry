@@ -37,7 +37,7 @@ import { JwtStrategy } from './common/utils/jwt-strategy.utils';
         return {
           secret,
           signOptions:{
-            expiresIn: "15m" as any
+            expiresIn: "15d" as any
           }
         }
 
