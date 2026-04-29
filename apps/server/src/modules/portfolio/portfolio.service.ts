@@ -35,19 +35,16 @@ export class PortfolioService {
   }
 
   /**
-   * Add a holding — now stores a Bayse event/market ID instead of a stock symbol.
-   * dto.symbol should be a Bayse eventId or marketId.
-   * We verify it exists on Bayse before storing.
+   * Paper-trading add: snapshots eventTitle, marketId and the current
+   * implied probability for the chosen side at buy-time. Subsequent buys
+   * of the same (event, outcome) weighted-average into the existing lot.
    */
   async addHolding(userId: string, portfolioId: string, dto: AddHoldingDto) {
     const portfolio = await this.db.portfolio.findFirst({
       where: { id: portfolioId, userId },
     });
-
     if (!portfolio) throw new NotFoundException('Portfolio not found');
 
-    // Verify the event exists on Bayse before storing
-    // dto.symbol now holds a Bayse eventId
     const event = await this.bayse.getEvent(dto.symbol).catch(() => null);
     if (!event) {
       throw new BadRequestException(
@@ -55,20 +52,45 @@ export class PortfolioService {
       );
     }
 
-    // Store eventId as symbol + event title as a label for display
-    return this.db.holdings.upsert({
+    const priceNow = dto.outcome === 'YES' ? event.yesPrice : event.noPrice;
+    const marketId = event.markets?.[0]?.id ?? event.id;
+
+    const existing = await this.db.holdings.findUnique({
       where: {
-        symbol_portfolioId: {
+        symbol_outcome_portfolioId: {
           symbol: dto.symbol,
+          outcome: dto.outcome,
           portfolioId,
         },
       },
-      update: {
-        quantity: { increment: dto.quantity },
+    });
+
+    let newQty = dto.quantity;
+    let newAvg = priceNow;
+    if (existing) {
+      const oldQty = Number(existing.quantity);
+      const oldPrice = Number(existing.entryPrice);
+      newQty = oldQty + dto.quantity;
+      // weighted-avg new lot into existing position
+      newAvg = (oldQty * oldPrice + dto.quantity * priceNow) / newQty;
+    }
+
+    return this.db.holdings.upsert({
+      where: {
+        symbol_outcome_portfolioId: {
+          symbol: dto.symbol,
+          outcome: dto.outcome,
+          portfolioId,
+        },
       },
+      update: { quantity: newQty, entryPrice: newAvg },
       create: {
         portfolioId,
-        symbol: dto.symbol,           // Bayse eventId
+        symbol: dto.symbol,
+        outcome: dto.outcome,
+        eventTitle: event.title,
+        marketId,
+        entryPrice: priceNow,
         quantity: dto.quantity,
       },
     });

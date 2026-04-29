@@ -1,5 +1,5 @@
 import { ApiProperty } from '@nestjs/swagger';
-import { IsString, IsNumber, IsUUID, Min } from 'class-validator';
+import { IsIn, IsNumber, IsUUID, Min } from 'class-validator';
 
 export class AddHoldingDto {
   @ApiProperty({
@@ -7,7 +7,15 @@ export class AddHoldingDto {
     description: 'Bayse event ID — use GET /portfolio/search to find valid event IDs',
   })
   @IsUUID()
-  symbol!: string; // stores Bayse eventId — field name kept for DB compatibility
+  symbol!: string;
+
+  @ApiProperty({
+    enum: ['YES', 'NO'],
+    example: 'YES',
+    description: 'Side of the prediction market the user is paper-buying',
+  })
+  @IsIn(['YES', 'NO'])
+  outcome!: 'YES' | 'NO';
 
   @ApiProperty({
     example: 50,
