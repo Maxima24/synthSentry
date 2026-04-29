@@ -82,3 +82,65 @@ describe('PortfolioService.addHolding (weighted-avg paper trading)', () => {
     ).rejects.toThrow(/not found/i);
   });
 });
+
+describe('PortfolioService.getPortfolioWithLivePrices (mark-to-market)', () => {
+  it('marks holdings to market via cached events and returns P&L', async () => {
+    const db = {
+      portfolio: {
+        findFirst: jest.fn().mockResolvedValue({
+          id: 'p1', name: 'Demo', userId: 'u1',
+          holdings: [
+            { id: 'h1', symbol: 'evt-1', outcome: 'YES', eventTitle: 'A?', marketId: 'm1', entryPrice: '0.40', quantity: '100' },
+            { id: 'h2', symbol: 'evt-2', outcome: 'NO',  eventTitle: 'B?', marketId: 'm2', entryPrice: '0.30', quantity: '50' },
+          ],
+        }),
+      },
+    };
+    const bayse = {
+      getEventCached: jest.fn()
+        .mockImplementation((id: string) =>
+          id === 'evt-1'
+            ? Promise.resolve({ id: 'evt-1', yesPrice: 0.50, noPrice: 0.50, status: 'open' })
+            : Promise.resolve({ id: 'evt-2', yesPrice: 0.60, noPrice: 0.40, status: 'open' }),
+        ),
+    };
+    const service = new PortfolioService(noopLogger, db as any, bayse as any);
+
+    const result = await service.getPortfolioWithLivePrices('p1', 'u1');
+
+    expect(result.holdings[0]).toMatchObject({
+      currentPrice: 0.50, currentValue: 50, pnl: 10, pnlPercent: 25,
+    });
+    expect(result.holdings[1].currentPrice).toBeCloseTo(0.40, 5);
+    expect(result.holdings[1].currentValue).toBeCloseTo(20, 5);
+    expect(result.holdings[1].pnl).toBeCloseTo(5, 5);
+    expect(result.holdings[1].pnlPercent).toBeCloseTo(33.333, 2);
+    expect(result.totalValue).toBeCloseTo(70, 2);
+    expect(result.totalCost).toBeCloseTo(55, 2);
+    expect(result.totalPnl).toBeCloseTo(15, 2);
+    expect(result).not.toHaveProperty('wallet');
+  });
+
+  it('returns null prices for events that fail/timeout, does not throw', async () => {
+    const db = {
+      portfolio: {
+        findFirst: jest.fn().mockResolvedValue({
+          id: 'p1', name: 'Demo', userId: 'u1',
+          holdings: [
+            { id: 'h1', symbol: 'evt-1', outcome: 'YES', eventTitle: 'A?', marketId: 'm1', entryPrice: '0.40', quantity: '100' },
+          ],
+        }),
+      },
+    };
+    const bayse = { getEventCached: jest.fn().mockRejectedValue(new Error('timeout')) };
+    const service = new PortfolioService(noopLogger, db as any, bayse as any);
+
+    const result = await service.getPortfolioWithLivePrices('p1', 'u1');
+
+    expect(result.holdings[0]).toMatchObject({
+      currentPrice: null, currentValue: null, pnl: null, isStale: true,
+    });
+    expect(result.totalValue).toBe(0);
+    expect(result.totalCost).toBeCloseTo(40, 2);
+  });
+});

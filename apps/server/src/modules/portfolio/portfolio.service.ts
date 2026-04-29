@@ -114,59 +114,86 @@ export class PortfolioService {
   }
 
   /**
-   * Get portfolio enriched with live Bayse data.
-   * Replaces the old getMultipleAssets() call — now pulls the full
-   * Bayse PM portfolio and wallet alongside the DB holdings.
+   * Paper-trading mark-to-market: prices each DB holding against the
+   * current Bayse implied probability (cached). One slow event can't hang
+   * the whole render — failed lookups produce a stale-marked holding.
    */
   async getPortfolioWithLivePrices(portfolioId: string, userId: string) {
     const portfolio = await this.db.portfolio.findFirst({
       where: { id: portfolioId, userId },
       include: { holdings: true },
     });
-
     if (!portfolio) throw new NotFoundException('Portfolio not found');
 
-    // Fetch live PM portfolio + wallet in parallel
-    const [baysePortfolio, walletAssets] = await Promise.all([
-      this.bayse.getPortfolio({ size: 100 }),
-      this.bayse.getWalletAssets(),
-    ]);
+    const priced = await Promise.all(
+      portfolio.holdings.map(async (h) => {
+        const event = await this.bayse
+          .getEventCached(h.symbol)
+          .catch(() => null);
 
-    // Match DB holdings to live Bayse positions by eventId (stored in symbol)
-    // Bayse positions are keyed by market/event; we match on event title or id
-    const holdingsWithValue = portfolio.holdings.map((holding) => {
-      // Find matching live position — symbol stores the Bayse eventId
-      const livePosition = baysePortfolio.positions.find((pos) =>
-        pos.eventTitle.includes(holding.symbol) || holding.symbol.includes(pos.id ?? ''),
-      );
+        const entryPrice = Number(h.entryPrice);
+        const quantity = Number(h.quantity);
+        const costBasis = entryPrice * quantity;
 
-      return {
-        ...holding,
-        eventTitle: livePosition?.eventTitle ?? holding.symbol,
-        outcome: livePosition?.outcome ?? null,
-        currentPrice: livePosition?.averagePrice ?? 0,     // implied probability
-        currentValue: livePosition?.currentValue ?? 0,
-        percentageChange: livePosition?.percentageChange ?? 0,
-        payoutIfWins: livePosition?.payoutIfWins ?? 0,
-        isLive: !!livePosition,
-      };
-    });
+        if (!event) {
+          return {
+            id: h.id,
+            symbol: h.symbol,
+            eventTitle: h.eventTitle,
+            outcome: h.outcome,
+            quantity,
+            entryPrice,
+            currentPrice: null as number | null,
+            currentValue: null as number | null,
+            costBasis,
+            pnl: null as number | null,
+            pnlPercent: null as number | null,
+            payoutIfWins: quantity,
+            isLive: false,
+            isStale: true,
+          };
+        }
 
-    const totalValue = baysePortfolio.totalCurrentValue;
+        const currentPrice =
+          h.outcome === 'YES' ? event.yesPrice : event.noPrice;
+        const currentValue = currentPrice * quantity;
+        const pnl = currentValue - costBasis;
+        const pnlPercent = costBasis > 0 ? (pnl / costBasis) * 100 : 0;
+
+        return {
+          id: h.id,
+          symbol: h.symbol,
+          eventTitle: h.eventTitle,
+          outcome: h.outcome,
+          quantity,
+          entryPrice,
+          currentPrice,
+          currentValue,
+          costBasis,
+          pnl,
+          pnlPercent,
+          payoutIfWins: quantity,
+          isLive: event.status === 'open',
+          isStale: false,
+        };
+      }),
+    );
+
+    const totalValue = priced.reduce((s, h) => s + (h.currentValue ?? 0), 0);
+    const totalCost = priced.reduce((s, h) => s + h.costBasis, 0);
+    const totalPnl = totalValue - totalCost;
+    const totalPnlPercent = totalCost > 0 ? (totalPnl / totalCost) * 100 : 0;
 
     return {
       id: portfolio.id,
       name: portfolio.name,
       userId: portfolio.userId,
-      holdings: holdingsWithValue,
+      holdings: priced,
       totalValue,
-      totalCost: baysePortfolio.totalCost,
-      totalPercentageChange: baysePortfolio.totalPercentageChange,
-      wallet: {
-        usd: walletAssets.totalUsd,
-        ngn: walletAssets.totalNgn,
-      },
-      openPositions: baysePortfolio.positions.length,
+      totalCost,
+      totalPnl,
+      totalPnlPercent,
+      openPositions: priced.filter((h) => h.isLive).length,
       lastUpdated: new Date(),
     };
   }
