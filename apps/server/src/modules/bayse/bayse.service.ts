@@ -198,6 +198,15 @@ export class BayseService {
   private cache = new Map<string, { data: unknown; ts: number }>();
   private readonly CACHE_TTL = 5 * 60 * 1000;
 
+  // Short-lived cache for getEvent lookups so portfolio mark-to-market and
+  // risk evaluation share the same priced events within a 30s window.
+  private readonly eventCache = new Map<
+    string,
+    { value: BayseEventDto; expiresAt: number }
+  >();
+  private readonly EVENT_CACHE_TTL_MS = 30_000;
+  private readonly EVENT_FETCH_TIMEOUT_MS = 2_000;
+
   constructor(private configService: ConfigService) {
     this.publicKey = this.configService.get<string>('BAYSE_API_KEY') || '';
     this.secretKey = this.configService.get<string>('BAYSE_SECRET_KEY') || '';
@@ -361,6 +370,34 @@ export class BayseService {
     } catch (e) {
       this.handleError(`getEvent(${eventId})`, e);
     }
+  }
+
+  /**
+   * Cached + timeout-bounded getEvent. Used by portfolio mark-to-market and
+   * risk evaluation so a slow Bayse call can't hang the whole render.
+   */
+  async getEventCached(eventId: string): Promise<BayseEventDto> {
+    const hit = this.eventCache.get(eventId);
+    if (hit && hit.expiresAt > Date.now()) return hit.value;
+
+    const value = await this.raceWithTimeout(
+      this.getEvent(eventId),
+      this.EVENT_FETCH_TIMEOUT_MS,
+    );
+    this.eventCache.set(eventId, {
+      value,
+      expiresAt: Date.now() + this.EVENT_CACHE_TTL_MS,
+    });
+    return value;
+  }
+
+  private raceWithTimeout<T>(p: Promise<T>, ms: number): Promise<T> {
+    return Promise.race([
+      p,
+      new Promise<T>((_, reject) =>
+        setTimeout(() => reject(new Error(`bayse timeout ${ms}ms`)), ms),
+      ),
+    ]);
   }
 
   /** Public */
