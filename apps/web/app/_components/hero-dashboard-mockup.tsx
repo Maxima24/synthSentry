@@ -18,25 +18,65 @@ import {
 import Image from "next/image";
 import { useEffect, useState } from "react";
 
-interface Tick {
+interface Position {
+  /** Short ticker chip — first letters of the event title */
   symbol: string;
-  name: string;
-  qty: string;
-  price: number;
-  change: number;
+  /** Full event title shown to the user */
+  title: string;
+  outcome: "YES" | "NO";
+  shares: number;
+  /** Implied probability paid in (0.00–1.00) */
+  entryPrice: number;
+  /** Current implied probability (0.00–1.00) */
+  currentPrice: number;
 }
 
-const SEED: Tick[] = [
-  { symbol: "BTC", name: "Bitcoin", qty: "1.42", price: 67_540.32, change: 2.34 },
-  { symbol: "ETH", name: "Ethereum", qty: "12.5", price: 3_124.18, change: -0.82 },
-  { symbol: "NVDA", name: "NVIDIA", qty: "85", price: 142.66, change: 1.18 },
-  { symbol: "SOL", name: "Solana", qty: "240", price: 178.45, change: 5.12 },
-  { symbol: "AAPL", name: "Apple", qty: "60", price: 226.31, change: -0.41 },
+const SEED: Position[] = [
+  {
+    symbol: "BTC",
+    title: "Will BTC be above $100k by EOY?",
+    outcome: "YES",
+    shares: 100,
+    entryPrice: 0.55,
+    currentPrice: 0.62,
+  },
+  {
+    symbol: "ARS",
+    title: "Will Arsenal qualify vs Atletico?",
+    outcome: "YES",
+    shares: 80,
+    entryPrice: 0.66,
+    currentPrice: 0.71,
+  },
+  {
+    symbol: "PSG",
+    title: "UEFA Champions League: PSG wins?",
+    outcome: "NO",
+    shares: 60,
+    entryPrice: 0.45,
+    currentPrice: 0.4,
+  },
+  {
+    symbol: "REC",
+    title: "US recession declared by Q3?",
+    outcome: "NO",
+    shares: 50,
+    entryPrice: 0.38,
+    currentPrice: 0.32,
+  },
+  {
+    symbol: "DEB",
+    title: "Trump–Vance debate margin >5pts?",
+    outcome: "YES",
+    shares: 40,
+    entryPrice: 0.42,
+    currentPrice: 0.45,
+  },
 ];
 
 export function HeroDashboardMockup() {
-  const [ticks, setTicks] = useState(SEED);
-  const [riskScore, setRiskScore] = useState(38);
+  const [positions, setPositions] = useState(SEED);
+  const [riskScore, setRiskScore] = useState(54);
   const [url, setUrl] = useState("synthsentry.app/dashboard");
 
   useEffect(() => {
@@ -50,23 +90,32 @@ export function HeroDashboardMockup() {
     if (reduce) return;
 
     const id = setInterval(() => {
-      setTicks((prev) =>
-        prev.map((t) => {
-          const drift = (Math.random() - 0.5) * 0.4;
-          const newPrice = Math.max(0.01, t.price * (1 + drift / 100));
-          return { ...t, price: newPrice, change: t.change + drift / 4 };
-        })
+      setPositions((prev) =>
+        prev.map((p) => {
+          // Implied probability drifts in cents, clamped to [0.02, 0.98]
+          const drift = (Math.random() - 0.5) * 0.012;
+          const next = Math.min(0.98, Math.max(0.02, p.currentPrice + drift));
+          return { ...p, currentPrice: next };
+        }),
       );
       setRiskScore((s) => {
         const next = s + (Math.random() - 0.5) * 1.4;
-        return Math.max(20, Math.min(72, next));
+        return Math.max(28, Math.min(82, next));
       });
     }, 1800);
 
     return () => clearInterval(id);
   }, []);
 
-  const totalValue = ticks.reduce((sum, t) => sum + Number(t.qty) * t.price, 0);
+  const totalValue = positions.reduce(
+    (sum, p) => sum + p.shares * p.currentPrice,
+    0,
+  );
+  const totalCost = positions.reduce(
+    (sum, p) => sum + p.shares * p.entryPrice,
+    0,
+  );
+  const totalPnl = totalValue - totalCost;
 
   return (
     <div className="relative isolate w-full">
@@ -87,18 +136,19 @@ export function HeroDashboardMockup() {
           <div className="flex min-w-0 flex-1 flex-col bg-background">
             <MockTopbar />
             <div className="flex-1 space-y-4 p-5 sm:p-6">
-              <MockPageHeader totalValue={totalValue} />
+              <MockPageHeader totalValue={totalValue} totalPnl={totalPnl} />
               <MockStats
                 totalValue={totalValue}
+                totalCost={totalCost}
                 riskScore={riskScore}
-                ticks={ticks}
+                openPositions={positions.length}
               />
               <div className="grid grid-cols-1 gap-4 lg:grid-cols-12">
                 <div className="lg:col-span-7">
                   <MockChart riskScore={riskScore} />
                 </div>
                 <div className="lg:col-span-5">
-                  <MockHoldings ticks={ticks} />
+                  <MockHoldings positions={positions} />
                 </div>
               </div>
               <MockReasoning />
@@ -131,7 +181,7 @@ const NAV_ITEMS = [
   { icon: DashboardSquare02Icon, label: "Dashboard", active: true },
   { icon: PieChart09Icon, label: "Portfolios" },
   { icon: Alert02Icon, label: "Alerts" },
-  { icon: ChartLineData02Icon, label: "Market" },
+  { icon: ChartLineData02Icon, label: "Markets" },
 ];
 
 function MockSidebar() {
@@ -186,7 +236,7 @@ function MockTopbar() {
     <div className="flex items-center gap-3 border-b border-black/[0.04] px-5 py-3">
       <div className="flex flex-1 items-center gap-2 rounded-lg border border-black/[0.06] bg-black/[0.02] px-3 py-1.5 text-[11px] text-foreground/45">
         <HugeiconsIcon icon={Search01Icon} className="size-3" />
-        Search assets…
+        Search markets…
         <span className="ml-auto rounded border border-black/[0.06] bg-white px-1 py-px font-mono text-[9px]">
           ⌘K
         </span>
@@ -212,7 +262,14 @@ function MockTopbar() {
   );
 }
 
-function MockPageHeader({ totalValue }: { totalValue: number }) {
+function MockPageHeader({
+  totalValue,
+  totalPnl,
+}: {
+  totalValue: number;
+  totalPnl: number;
+}) {
+  const positive = totalPnl >= 0;
   return (
     <div className="flex flex-wrap items-end justify-between gap-3">
       <div>
@@ -234,6 +291,14 @@ function MockPageHeader({ totalValue }: { totalValue: number }) {
           <span className="font-display text-sm font-semibold tabular-nums text-foreground">
             {formatFullUsd(totalValue)}
           </span>
+          <span
+            className={`text-[10px] font-medium tabular-nums ${
+              positive ? "text-emerald-600" : "text-rose-600"
+            }`}
+          >
+            {positive ? "+" : ""}
+            {formatFullUsd(totalPnl)}
+          </span>
         </div>
       </div>
       <div className="flex items-center gap-1.5">
@@ -243,7 +308,7 @@ function MockPageHeader({ totalValue }: { totalValue: number }) {
         </span>
         <span className="inline-flex items-center gap-1.5 rounded-full bg-foreground px-2.5 py-1.5 text-[10px] font-semibold text-background">
           <HugeiconsIcon icon={Add01Icon} className="size-3" />
-          Add portfolio
+          Add holding
         </span>
       </div>
     </div>
@@ -252,37 +317,45 @@ function MockPageHeader({ totalValue }: { totalValue: number }) {
 
 function MockStats({
   totalValue,
+  totalCost,
   riskScore,
-  ticks,
+  openPositions,
 }: {
   totalValue: number;
+  totalCost: number;
   riskScore: number;
-  ticks: Tick[];
+  openPositions: number;
 }) {
-  const upPct =
-    (ticks.filter((t) => t.change >= 0).length / ticks.length) * 100;
+  const pnl = totalValue - totalCost;
+  const pnlPct = totalCost > 0 ? (pnl / totalCost) * 100 : 0;
   const riskLevel =
-    riskScore < 33 ? "low" : riskScore < 66 ? "medium" : "high";
+    riskScore < 25
+      ? "low"
+      : riskScore < 50
+        ? "medium"
+        : riskScore < 75
+          ? "high"
+          : "critical";
 
   return (
     <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
       <StatTile
         label="Portfolio value"
         value={formatCompactUsd(totalValue)}
-        delta="+ 4.2% today"
+        delta={`${pnlPct >= 0 ? "+" : ""}${pnlPct.toFixed(1)}% vs cost`}
         primary
       />
-      <StatTile label="Holdings" value={`${ticks.length}`} delta="across 1 portfolio" />
+      <StatTile
+        label="Open positions"
+        value={`${openPositions}`}
+        delta="across 1 portfolio"
+      />
       <StatTile
         label="Risk score"
         value={Math.round(riskScore).toString()}
         delta={`${riskLevel} risk`}
       />
-      <StatTile
-        label="Active alerts"
-        value="2"
-        delta={`${Math.round(upPct)}% assets up`}
-      />
+      <StatTile label="Active alerts" value="2" delta="1 anomaly flagged" />
     </div>
   );
 }
@@ -333,7 +406,7 @@ function StatTile({
 
 function MockChart({ riskScore }: { riskScore: number }) {
   const bars = [42, 38, 45, 52, 48, riskScore, riskScore + 2];
-  const max = 72;
+  const max = 90;
   const DAYS = ["S", "M", "T", "W", "T", "F", "S"];
 
   return (
@@ -386,7 +459,9 @@ function MockChart({ riskScore }: { riskScore: number }) {
   );
 }
 
-function MockHoldings({ ticks }: { ticks: Tick[] }) {
+const SYMBOL_COLORS = ["#C6F432", "#60A5FA", "#F59E0B", "#A78BFA"];
+
+function MockHoldings({ positions }: { positions: Position[] }) {
   return (
     <div className="rounded-2xl border border-black/[0.05] bg-white p-4 shadow-[0_4px_20px_rgba(0,0,0,0.03)]">
       <div className="flex items-center justify-between">
@@ -399,30 +474,42 @@ function MockHoldings({ ticks }: { ticks: Tick[] }) {
         </span>
       </div>
       <ul className="mt-3 flex flex-col gap-2">
-        {ticks.slice(0, 4).map((t, i) => {
-          const value = Number(t.qty) * t.price;
-          const positive = t.change >= 0;
+        {positions.slice(0, 4).map((p, i) => {
+          const value = p.shares * p.currentPrice;
+          const pnlPct = ((p.currentPrice - p.entryPrice) / p.entryPrice) * 100;
+          const positive = pnlPct >= 0;
           return (
-            <li key={t.symbol} className="flex items-center gap-2.5">
+            <li key={p.symbol} className="flex items-center gap-2.5">
               <span
                 className="flex size-7 items-center justify-center rounded-md font-display text-[9px] font-bold text-primary-foreground"
                 style={{
-                  background: ["#C6F432", "#60A5FA", "#F59E0B", "#A78BFA"][i],
+                  background: SYMBOL_COLORS[i % SYMBOL_COLORS.length],
                 }}
               >
-                {t.symbol.slice(0, 3)}
+                {p.symbol}
               </span>
               <div className="min-w-0 flex-1">
-                <div className="truncate text-xs font-semibold text-foreground">
-                  {t.name}
+                <div className="flex items-center gap-1.5">
+                  <span className="truncate text-xs font-semibold text-foreground">
+                    {p.title}
+                  </span>
                 </div>
-                <div className="text-[10px] text-foreground/45 tabular-nums">
-                  {t.qty} {t.symbol}
+                <div className="flex items-center gap-1 text-[10px] text-foreground/45">
+                  <span className="rounded bg-black/[0.05] px-1 py-px font-bold text-foreground/70">
+                    {p.outcome}
+                  </span>
+                  <span className="tabular-nums">{p.shares} sh</span>
+                  <span className="tabular-nums">
+                    @ {formatCents(p.entryPrice)}
+                  </span>
+                  <span className="tabular-nums text-foreground/65">
+                    → {formatCents(p.currentPrice)}
+                  </span>
                 </div>
               </div>
               <div className="flex flex-col items-end">
                 <span className="text-xs font-semibold text-foreground tabular-nums">
-                  {formatCompactUsd(value)}
+                  {formatFullUsd(value)}
                 </span>
                 <span
                   className={`flex items-center gap-0.5 text-[10px] font-medium tabular-nums ${
@@ -433,7 +520,7 @@ function MockHoldings({ ticks }: { ticks: Tick[] }) {
                     icon={positive ? ArrowUp04Icon : ArrowDown04Icon}
                     className="size-2"
                   />
-                  {Math.abs(t.change).toFixed(2)}%
+                  {Math.abs(pnlPct).toFixed(1)}%
                 </span>
               </div>
             </li>
@@ -459,9 +546,10 @@ function MockReasoning() {
           <span className="text-[10px] text-foreground/45">~1.2s eval</span>
         </div>
         <p className="mt-1 max-w-prose text-xs leading-relaxed text-foreground/75">
-          High concentration in BTC (49%) increases drawdown risk. Crypto
-          exposure exceeds equity allocation 2:1. Consider trimming SOL given
-          recent volatility cluster.
+          Two sports positions (Arsenal qualify + UCL winner) are correlated —
+          a single match outcome moves both. BTC YES @ 62¢ near 50/50 inflection
+          carries elevated tail risk. Recession NO position hedges against the
+          equity-correlated longs.
         </p>
       </div>
     </div>
@@ -472,7 +560,7 @@ function formatCompactUsd(n: number): string {
   if (!Number.isFinite(n) || n === 0) return "$0";
   if (n >= 1_000_000) return `$${(n / 1_000_000).toFixed(2)}M`;
   if (n >= 1_000) return `$${(n / 1_000).toFixed(1)}k`;
-  return `$${n.toFixed(0)}`;
+  return `$${n.toFixed(2)}`;
 }
 
 function formatFullUsd(n: number): string {
@@ -481,4 +569,8 @@ function formatFullUsd(n: number): string {
     currency: "USD",
     maximumFractionDigits: 2,
   });
+}
+
+function formatCents(p: number): string {
+  return `${Math.round(p * 100)}¢`;
 }
