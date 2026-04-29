@@ -36,3 +36,9 @@ yarn-error.log*
 # Misc
 .DS_Store
 *.pem
+
+# Local agent / editor guidance — keep out of the repo
+CLAUDE.md
+AGENTS.md
+.claude/
+docs/superpowers/
