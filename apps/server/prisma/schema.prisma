@@ -36,9 +36,10 @@ model Portfolio {
 model Holdings {
   id          String        @id @default(uuid())
   symbol      String        // Bayse eventId
-  eventTitle  String?       // "Will BTC hit $100k by June 2026?"
-  marketId    String?       // Bayse marketId — used for ticker calls
-  outcome     String?       // "YES" | "NO"
+  eventTitle  String        // captured at add-time
+  marketId    String        // captured at add-time, used by getMarketTicker
+  outcome     String        // "YES" | "NO"
+  entryPrice  Decimal       // weighted-avg implied probability paid in (0.00–1.00)
   quantity    Decimal
   portfolioId String
   portfolio   Portfolio     @relation(references: [id], fields: [portfolioId], onDelete: Cascade)
@@ -47,7 +48,7 @@ model Holdings {
   createdAt   DateTime      @default(now())
   updatedAt   DateTime      @updatedAt
 
-  @@unique([symbol, portfolioId])
+  @@unique([symbol, outcome, portfolioId])
 }
 
 model RiskSnapShots {
@@ -57,6 +58,8 @@ model RiskSnapShots {
   overallScore  Int
   riskLevel     String    @default("low")
   explanation   String
+  reasoningPath Json
+  anomalies     Json
   holdingScores Json
   snapShotAt    DateTime  @default(now())
 }
