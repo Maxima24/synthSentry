@@ -109,7 +109,7 @@ sequenceDiagram
 
 **Key design decisions:**
 
-- **Paper trading, not brokerage mirror.** Holdings live in our DB. We snapshot the implied probability + outcome at buy-time so P&L is honest even when Bayse positions don't exist. (See [design spec](docs/superpowers/specs/2026-04-29-paper-trading-portfolio-design.md).)
+- **Paper trading, not brokerage mirror.** Holdings live in our DB. We snapshot the implied probability + outcome at buy-time so P&L is honest even when Bayse positions don't exist.
 - **30-second event cache.** Repeated portfolio loads during a demo are <100ms instead of N×Bayse round-trips.
 - **2-second per-call timeout + `Promise.allSettled`.** One slow Bayse call can't blank the whole portfolio render.
 - **Reasoning path persisted on every snapshot.** Risk history shows *what the AI was thinking at the time*, not just the score.
@@ -205,9 +205,6 @@ frontend/
 │   │   └── prisma/           # Schema + migrations
 │   └── web/                  # Next.js 16 dashboard (App Router)
 │       └── app/(dashboard)/  # Portfolios, dashboard, alerts pages
-├── docs/superpowers/
-│   ├── specs/                # Design specs
-│   └── plans/                # Implementation plans
 └── DEPLOYMENT.md             # GCP / Railway deploy notes
 ```
 
@@ -230,7 +227,7 @@ frontend/
 
 ## 🎨 Design Philosophy
 
-The **Dual-Theme architecture** — dark, neon-accented landing page (the marketing surface) and a light, airy dashboard (the financial surface). All design tokens live in [apps/web/app/globals.css](apps/web/app/globals.css). See [CLAUDE.md](CLAUDE.md) for the full "VC standard" rule set: rounded radii hierarchy, matte frame pattern, border-color rules, the dark/light split, and the icon library policy (Hugeicons only).
+A **dual-theme architecture**: a dark, neon-accented landing page for marketing, and a light, airy dashboard for financial data. All design tokens (radii hierarchy, the matte frame, border-color rules, the dark/light split, Hugeicons-only policy) live in [apps/web/app/globals.css](apps/web/app/globals.css).
 
 ---
 
