@@ -39,8 +39,8 @@ export class RiskService {
   ): Promise<RiskScoreDto> {
     const portfolioRecord = await this.db.portfolio.findFirst({
       where: { id: dto.portfolioId, userId },
+      include: { holdings: true },
     });
-
     if (!portfolioRecord) throw new NotFoundException('Portfolio not found');
 
     if (!dto.forceRefresh) {
@@ -48,46 +48,90 @@ export class RiskService {
         where: { portfolioId: dto.portfolioId },
         orderBy: { snapShotAt: 'desc' },
       });
-
       if (recent) {
         const age = Date.now() - new Date(recent.snapShotAt).getTime();
         if (age < this.CACHE_TTL) return this.formatRiskScore(recent);
       }
     }
 
-    const baysePortfolio = await this.bayse.getPortfolio({ size: 100 });
-
-    if (baysePortfolio.positions.length === 0) {
-      throw new BadRequestException('No open positions found on Bayse to evaluate');
+    if (portfolioRecord.holdings.length === 0) {
+      return this.emptyRiskScore();
     }
 
-    const holdingsData = await this.buildHoldingsData(baysePortfolio);
-    const totalValue = baysePortfolio.totalCurrentValue;
+    const priced = await Promise.allSettled(
+      portfolioRecord.holdings.map(async (h) => {
+        const event = await this.bayse.getEventCached(h.symbol);
+        const currentPrice =
+          h.outcome === 'YES' ? event.yesPrice : event.noPrice;
+        const change24h = await this.bayse
+          .getMarketTicker(h.marketId, h.outcome as 'YES' | 'NO')
+          .then((t) => t.priceChange24h)
+          .catch(() => 0);
+        const quantity = Number(h.quantity);
+        return {
+          symbol: this.shortLabel(h.eventTitle),
+          eventId: h.symbol,
+          quantity,
+          currentPrice,
+          change24h,
+          value: currentPrice * quantity,
+        };
+      }),
+    );
 
-    const [geminiAnalysis, bayseRisk] = await Promise.all([
-      this.gemini.analyzePortfolioRisk(holdingsData, totalValue),
-      this.bayse.analysePortfolioRisk(),
-    ]);
+    const successful = priced
+      .filter(
+        (r): r is PromiseFulfilledResult<{
+          symbol: string;
+          eventId: string;
+          quantity: number;
+          currentPrice: number;
+          change24h: number;
+          value: number;
+        }> => r.status === 'fulfilled',
+      )
+      .map((r) => r.value);
 
-    const mergedAnomalies = [
-      ...geminiAnalysis.anomalies,
-      ...bayseRisk.flags,
-    ];
+    if (successful.length === 0) {
+      throw new BadRequestException(
+        'Market data temporarily unavailable. Try again in a moment.',
+      );
+    }
+
+    const holdingsData: HoldingData[] = successful.map(
+      ({ eventId, ...rest }) => rest,
+    );
+    const totalValue = successful.reduce((s, h) => s + h.value, 0);
+
+    const geminiAnalysis = await this.gemini.analyzePortfolioRisk(
+      holdingsData,
+      totalValue,
+    );
+
+    const holdingScores = successful.reduce<Record<string, number>>((acc, h) => {
+      const match = geminiAnalysis.perAssetScores.find(
+        (s) => s.symbol === h.symbol,
+      );
+      acc[h.eventId] = match?.score ?? geminiAnalysis.overallScore;
+      return acc;
+    }, {});
 
     const snapshot = await this.db.riskSnapShots.create({
       data: {
         portfolioId: dto.portfolioId,
         overallScore: geminiAnalysis.overallScore,
+        riskLevel: this.getRiskLevel(geminiAnalysis.overallScore),
         explanation: geminiAnalysis.explanation,
-        holdingScores: geminiAnalysis.perAssetScores.reduce(
-          (acc, s) => ({ ...acc, [s.symbol]: s.score }),
-          {} as Record<string, number>,
-        ),
+        reasoningPath: geminiAnalysis.reasoningPath,
+        anomalies: geminiAnalysis.anomalies,
+        holdingScores,
       },
     });
 
-    await this.storeAnomalyFlags(dto.portfolioId, mergedAnomalies);
-    await this.checkAndTriggerAlerts(dto.portfolioId, geminiAnalysis.overallScore);
+    await this.checkAndTriggerAlerts(
+      dto.portfolioId,
+      geminiAnalysis.overallScore,
+    );
 
     return this.formatRiskScore(snapshot);
   }
@@ -130,14 +174,12 @@ export class RiskService {
       where: { id: portfolioId, userId },
       include: {
         snapshots: { orderBy: { snapShotAt: 'desc' }, take: 1 },
+        holdings: true,
       },
     });
-
     if (!portfolioRecord) throw new NotFoundException('Portfolio not found');
 
-    const [baysePortfolio, walletAssets, alerts, anomalies] = await Promise.all([
-      this.bayse.getPortfolio({ size: 100 }),
-      this.bayse.getWalletAssets(),
+    const [alerts, anomalies] = await Promise.all([
       this.db.alertConfig.findMany({
         where: { holdings: { portfolioId } },
         include: { holdings: true },
@@ -148,6 +190,27 @@ export class RiskService {
       }),
     ]);
 
+    const priced = await Promise.all(
+      portfolioRecord.holdings.map(async (h) => {
+        const event = await this.bayse
+          .getEventCached(h.symbol)
+          .catch(() => null);
+        const costBasis = Number(h.entryPrice) * Number(h.quantity);
+        if (!event) return { costBasis, currentValue: 0, isLive: false };
+        const currentPrice =
+          h.outcome === 'YES' ? event.yesPrice : event.noPrice;
+        return {
+          costBasis,
+          currentValue: currentPrice * Number(h.quantity),
+          isLive: event.status === 'open',
+        };
+      }),
+    );
+    const totalValue = priced.reduce((s, p) => s + p.currentValue, 0);
+    const totalCost = priced.reduce((s, p) => s + p.costBasis, 0);
+    const totalPnl = totalValue - totalCost;
+    const totalPercentageChange = totalCost > 0 ? (totalPnl / totalCost) * 100 : 0;
+
     const latestSnapshot = portfolioRecord.snapshots[0];
     const riskScore = latestSnapshot
       ? this.formatRiskScore(latestSnapshot)
@@ -157,27 +220,23 @@ export class RiskService {
       portfolio: {
         id: portfolioRecord.id,
         name: portfolioRecord.name,
-        totalValue: baysePortfolio.totalCurrentValue,
-        totalCost: baysePortfolio.totalCost,
-        totalPercentageChange: baysePortfolio.totalPercentageChange,
-        walletUsd: walletAssets.totalUsd,
-        walletNgn: walletAssets.totalNgn,
-        openPositions: baysePortfolio.positions.length,
+        totalValue,
+        totalCost,
+        totalPercentageChange,
+        openPositions: priced.filter((p) => p.isLive).length,
       },
       risk: riskScore,
-      alerts: alerts.map(a => ({
+      alerts: alerts.map((a) => ({
         id: a.id,
         label: a.holdings.symbol,
         threshold: a.threshold,
         triggered: a.triggeredAt !== null,
         triggeredAt: a.triggeredAt?.toISOString(),
-        // ← fixed: removed stray symbol field
       })),
-      activeAnomalies: anomalies.map(a => ({
+      activeAnomalies: anomalies.map((a) => ({
         label: a.holdings.symbol,
         reason: a.reason,
         severity: 'medium' as const,
-        // ← fixed: removed stray symbol field
       })),
     };
   }
@@ -345,7 +404,7 @@ export class RiskService {
 
   private formatRiskScore(snapshot: any): RiskScoreDto {
     const perAssetScores = Object.entries(
-      snapshot.holdingScores as Record<string, number>,
+      (snapshot.holdingScores as Record<string, number>) ?? {},
     ).map(([symbol, score]) => ({
       symbol,
       score,
@@ -355,10 +414,10 @@ export class RiskService {
 
     return {
       overallScore: snapshot.overallScore,
-      riskLevel: this.getRiskLevel(snapshot.overallScore),
+      riskLevel: snapshot.riskLevel ?? this.getRiskLevel(snapshot.overallScore),
       explanation: snapshot.explanation,
-      reasoningPath: [],
-      anomalies: [],
+      reasoningPath: (snapshot.reasoningPath as string[]) ?? [],
+      anomalies: (snapshot.anomalies as string[]) ?? [],
       perAssetScores,
       evaluatedAt: snapshot.snapShotAt.toISOString(),
     };
@@ -368,7 +427,7 @@ export class RiskService {
     return {
       overallScore: 0,
       riskLevel: RiskLevel.LOW,
-      explanation: 'No risk evaluation yet. Trigger an evaluation to get started.',
+      explanation: 'Add holdings to enable AI risk analysis.',
       reasoningPath: [],
       anomalies: [],
       perAssetScores: [],

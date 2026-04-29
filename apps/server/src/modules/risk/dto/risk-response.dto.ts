@@ -104,12 +104,6 @@ export class PortfolioSummaryFieldDto {
   @ApiProperty({ description: 'Overall portfolio gain/loss percentage' })
   totalPercentageChange!: number;
 
-  @ApiProperty({ description: 'Available USD wallet balance on Bayse' })
-  walletUsd!: number;
-
-  @ApiProperty({ description: 'Available NGN wallet balance on Bayse' })
-  walletNgn!: number;
-
   @ApiProperty({ description: 'Number of open prediction market positions' })
   openPositions!: number;
 }
