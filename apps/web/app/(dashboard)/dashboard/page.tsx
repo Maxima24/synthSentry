@@ -86,6 +86,7 @@ export default function DashboardPage() {
     alerts.filter((a) => !a.triggeredAt).length || alerts.length;
   const anomalies = summary?.activeAnomalies ?? [];
   const reasoning = summary?.risk?.reasoningPath ?? [];
+  const riskAnomalies = summary?.risk?.anomalies ?? [];
   const totalValue = current?.totalValue ?? 0;
   const effectivePortfolio: Portfolio | null =
     current ?? portfolios.find((p) => p.id === selectedId) ?? null;
@@ -159,7 +160,11 @@ export default function DashboardPage() {
 
       <div className="mt-6 grid grid-cols-1 gap-5 xl:grid-cols-12">
         <div className="xl:col-span-5">
-          <AnomaliesList anomalies={anomalies} reasoning={reasoning} />
+          <AnomaliesList
+            anomalies={anomalies}
+            reasoning={reasoning}
+            riskAnomalies={riskAnomalies}
+          />
         </div>
         <div className="xl:col-span-4">
           <RiskGauge score={overallScore} level={riskLevel} />

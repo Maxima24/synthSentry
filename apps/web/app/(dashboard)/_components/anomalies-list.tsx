@@ -7,6 +7,7 @@ import type { AnomalySummary } from "../../_lib/types";
 interface AnomaliesListProps {
   anomalies: AnomalySummary[];
   reasoning?: string[];
+  riskAnomalies?: string[];
 }
 
 const SEVERITY_TONE: Record<AnomalySummary["severity"], string> = {
@@ -24,73 +25,110 @@ const SEVERITY_LABEL_TONE: Record<AnomalySummary["severity"], string> = {
 export function AnomaliesList({
   anomalies,
   reasoning = [],
+  riskAnomalies = [],
 }: AnomaliesListProps) {
-  const useReasoning = anomalies.length === 0 && reasoning.length > 0;
+  const hasReasoning = reasoning.length > 0;
+  const hasRiskAnomalies = riskAnomalies.length > 0;
+  const hasActiveAnomalies = anomalies.length > 0;
+  const isEmpty = !hasReasoning && !hasRiskAnomalies && !hasActiveAnomalies;
 
   return (
     <div className="flex h-full flex-col overflow-hidden rounded-card border border-black/[0.05] bg-white p-6 shadow-[0_8px_30px_rgba(0,0,0,0.04)]">
       <div className="flex items-center gap-2">
         <HugeiconsIcon
-          icon={useReasoning ? AiBrain01Icon : Alert02Icon}
+          icon={hasActiveAnomalies ? Alert02Icon : AiBrain01Icon}
           className="size-4 text-foreground/60"
         />
         <h3 className="font-display text-base font-semibold text-foreground">
-          {useReasoning ? "AI reasoning" : "Active anomalies"}
+          AI risk insights
         </h3>
       </div>
       <p className="mt-0.5 text-xs text-foreground/50">
-        {useReasoning
-          ? "How Gemini evaluated your portfolio."
-          : "Outliers detected across your positions."}
+        How Gemini evaluated your portfolio.
       </p>
 
-      {anomalies.length === 0 && reasoning.length === 0 ? (
+      {isEmpty ? (
         <p className="mt-6 text-sm text-foreground/55">
-          No anomalies detected. Your portfolio is behaving within expected
-          ranges.
+          No risk evaluation yet. Click Evaluate Risk to score this portfolio.
         </p>
-      ) : useReasoning ? (
-        <ul className="mt-4 flex flex-col gap-3">
-          {reasoning.slice(0, 5).map((text, i) => (
-            <li
-              key={i}
-              className="flex items-start gap-3 rounded-xl border border-black/[0.04] bg-black/[0.015] px-3 py-2.5"
-            >
-              <span className="mt-1.5 size-1.5 shrink-0 rounded-full bg-foreground/40" />
-              <span className="text-sm leading-relaxed text-foreground/80">
-                {text}
-              </span>
-            </li>
-          ))}
-        </ul>
       ) : (
-        <ul className="mt-4 flex flex-col gap-3">
-          {anomalies.slice(0, 5).map((a, i) => (
-            <li
-              key={i}
-              className="flex items-start gap-3 rounded-xl border border-black/[0.04] bg-black/[0.015] px-3 py-2.5"
-            >
-              <span
-                className={`mt-1.5 size-1.5 shrink-0 rounded-full ${SEVERITY_TONE[a.severity]}`}
-              />
-              <div className="min-w-0 flex-1">
-                <div className="flex items-center gap-2">
-                  <span className="truncate text-sm font-semibold text-foreground">
-                    {a.label}
-                  </span>
-                  <span
-                    className={`shrink-0 rounded-full px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wider ${SEVERITY_LABEL_TONE[a.severity]}`}
-                  >
-                    {a.severity}
-                  </span>
-                </div>
-                <p className="mt-0.5 text-xs leading-relaxed text-foreground/70">
-                  {a.reason}
-                </p>
+        <div className="mt-4 flex flex-col gap-4">
+          {hasRiskAnomalies ? (
+            <div className="rounded-xl border border-amber-200/80 bg-amber-50 p-3">
+              <div className="text-[10px] font-semibold uppercase tracking-wider text-amber-700">
+                Anomalies detected
               </div>
-            </li>
-          ))}
-        </ul>
+              <div className="mt-2 flex flex-wrap gap-1.5">
+                {riskAnomalies.map((text, i) => (
+                  <span
+                    key={i}
+                    className="rounded-full bg-amber-100 px-2.5 py-1 text-[11px] font-medium text-amber-800"
+                  >
+                    {text}
+                  </span>
+                ))}
+              </div>
+            </div>
+          ) : null}
+
+          {hasReasoning ? (
+            <div>
+              <div className="text-[10px] font-semibold uppercase tracking-wider text-foreground/55">
+                Reasoning path
+              </div>
+              <ol className="mt-2 flex flex-col gap-2">
+                {reasoning.slice(0, 5).map((text, i) => (
+                  <li
+                    key={i}
+                    className="flex items-start gap-3 rounded-xl border border-black/[0.04] bg-black/[0.015] px-3 py-2.5"
+                  >
+                    <span className="mt-0.5 flex size-5 shrink-0 items-center justify-center rounded-full bg-foreground/10 text-[10px] font-bold tabular-nums text-foreground/70">
+                      {i + 1}
+                    </span>
+                    <span className="text-sm leading-relaxed text-foreground/80">
+                      {text}
+                    </span>
+                  </li>
+                ))}
+              </ol>
+            </div>
+          ) : null}
+
+          {hasActiveAnomalies ? (
+            <div>
+              <div className="text-[10px] font-semibold uppercase tracking-wider text-foreground/55">
+                Active alerts
+              </div>
+              <ul className="mt-2 flex flex-col gap-2">
+                {anomalies.slice(0, 5).map((a, i) => (
+                  <li
+                    key={i}
+                    className="flex items-start gap-3 rounded-xl border border-black/[0.04] bg-black/[0.015] px-3 py-2.5"
+                  >
+                    <span
+                      className={`mt-1.5 size-1.5 shrink-0 rounded-full ${SEVERITY_TONE[a.severity]}`}
+                    />
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-center gap-2">
+                        <span className="truncate text-sm font-semibold text-foreground">
+                          {a.label}
+                        </span>
+                        <span
+                          className={`shrink-0 rounded-full px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wider ${SEVERITY_LABEL_TONE[a.severity]}`}
+                        >
+                          {a.severity}
+                        </span>
+                      </div>
+                      <p className="mt-0.5 text-xs leading-relaxed text-foreground/70">
+                        {a.reason}
+                      </p>
+                    </div>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          ) : null}
+        </div>
       )}
     </div>
   );
