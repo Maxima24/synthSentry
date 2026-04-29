@@ -96,6 +96,15 @@ export class PortfolioService {
     });
   }
 
+  async findHoldingForUser(userId: string, holdingId: string) {
+    return this.db.holdings.findFirst({
+      where: {
+        id: holdingId,
+        portfolio: { userId },
+      },
+    });
+  }
+
   async removeHolding(userId: string, holdingId: string) {
     const holding = await this.db.holdings.findFirst({
       where: {

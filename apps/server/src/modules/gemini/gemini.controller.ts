@@ -1,4 +1,3 @@
-// src/gemini/gemini.controller.ts
 import {
   Controller,
   Post,
@@ -22,40 +21,10 @@ export class GeminiController {
     private configService: ConfigService,
   ) {}
 
-  @Post('analyze')
-  @UseGuards(JwtGuard)
-  async analyzePortfolioRisk(@Request() req, @Body() body: { portfolioId: string }) {
-    // Get portfolio with live prices
-    const portfolio = await this.portfolioService.getPortfolioWithLivePrices(
-      body.portfolioId,
-      req.user.id,
-    );
-    
-    // Extract holdings data for Gemini
-    const holdingsData = portfolio.holdings.map(h => ({
-      symbol: h.symbol,
-      quantity: h.quantity.toNumber(),
-      currentPrice: h.currentPrice,
-      change24h: h.percentageChange,
-      value: h.currentValue,
-    }));
-    
-    // Run AI risk analysis
-    const riskAnalysis = await this.geminiService.analyzePortfolioRisk(
-      holdingsData,
-      portfolio.totalValue,
-    );
-    
-    // Store snapshot in database (we'll add this next)
-    // await this.riskSnapshotService.save(req.user.id, body.portfolioId, riskAnalysis);
-    
-    return {
-      portfolioId: portfolio.id,
-      portfolioName: portfolio.name,
-      totalValue: portfolio.totalValue,
-      ...riskAnalysis,
-    };
-  }
+  /**
+   * Unauthenticated smoke test for Gemini wiring. Gated by a shared
+   * RISK_TEST_SECRET header — when the env var is unset the route 404s.
+   */
   @Post('test')
   async testGemini(@Headers('x-test-secret') secret: string) {
     const expected = this.configService.get<string>('RISK_TEST_SECRET');
@@ -73,32 +42,44 @@ export class GeminiController {
     return this.geminiService.analyzePortfolioRisk(testHoldings, 60.0);
   }
 
-
-
+  /**
+   * "What if" — re-score the portfolio with one holding's price replaced.
+   * Takes a holdingId (not a bare symbol) so YES vs NO is unambiguous.
+   */
   @Post('simulate')
   @UseGuards(JwtGuard)
   async simulateRiskChange(
     @Request() req,
-    @Body() body: { portfolioId: string; symbol: string; newPrice: number },
+    @Body() body: { holdingId: string; newPrice: number },
   ) {
+    const holding = await this.portfolioService.findHoldingForUser(
+      req.user.id,
+      body.holdingId,
+    );
+    if (!holding) {
+      throw new NotFoundException('Holding not found');
+    }
+
     const portfolio = await this.portfolioService.getPortfolioWithLivePrices(
-      body.portfolioId,
+      holding.portfolioId,
       req.user.id,
     );
-    
-    const holdingsData = portfolio.holdings.map(h => ({
-      symbol: h.symbol,
-      quantity: h.quantity.toNumber(),
-      currentPrice: h.currentPrice,
-      change24h: h.percentageChange,
-      value: h.currentValue,
-    }));
-    
+
+    const holdingsData = portfolio.holdings.map((h) => {
+      const priceForSim =
+        h.id === body.holdingId ? body.newPrice : (h.currentPrice ?? 0);
+      return {
+        symbol: h.eventTitle ?? h.symbol,
+        quantity: h.quantity,
+        currentPrice: priceForSim,
+        change24h: h.pnlPercent ?? 0,
+        value: priceForSim * h.quantity,
+      };
+    });
+
     return this.geminiService.simulateRiskChange(holdingsData, {
-      symbol: body.symbol.toUpperCase(),
+      symbol: holding.eventTitle ?? holding.symbol,
       newPrice: body.newPrice,
     });
   }
-
-  
 }
