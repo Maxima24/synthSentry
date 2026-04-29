@@ -1,15 +1,25 @@
 // src/gemini/gemini.controller.ts
-import { Controller, Post, Body, UseGuards, Request } from '@nestjs/common';
+import {
+  Controller,
+  Post,
+  Body,
+  UseGuards,
+  Request,
+  Headers,
+  ForbiddenException,
+  NotFoundException,
+} from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { GeminiService } from './gemini.service';
 import { JwtGuard } from '../../common/utils/jwt-strategy.utils';
 import { PortfolioService } from '../portfolio/portfolio.service';
 
 @Controller('risk')
-// @UseGuards(JwtGuard)
 export class GeminiController {
   constructor(
     private geminiService: GeminiService,
     private portfolioService: PortfolioService,
+    private configService: ConfigService,
   ) {}
 
   @Post('analyze')
@@ -46,15 +56,22 @@ export class GeminiController {
       ...riskAnalysis,
     };
   }
-  // Add to gemini.controller.ts temporarily
-@Post('test')
-async testGemini() {
-  const testHoldings = [
-    { symbol: 'AAPL', quantity: 10, currentPrice: 175.50, change24h: 1.2, value: 1755 },
-    { symbol: 'TSLA', quantity: 5, currentPrice: 240.30, change24h: -3.5, value: 1201.50 },
-  ];
-  return this.geminiService.analyzePortfolioRisk(testHoldings, 2956.50);
-}
+  @Post('test')
+  async testGemini(@Headers('x-test-secret') secret: string) {
+    const expected = this.configService.get<string>('RISK_TEST_SECRET');
+    if (!expected) {
+      throw new NotFoundException();
+    }
+    if (!secret || secret !== expected) {
+      throw new ForbiddenException();
+    }
+
+    const testHoldings = [
+      { symbol: 'TRUMP-2024-WIN', quantity: 100, currentPrice: 0.485, change24h: 0.012, value: 48.5 },
+      { symbol: 'BTC-100K-EOY', quantity: 50, currentPrice: 0.23, change24h: -0.035, value: 11.5 },
+    ];
+    return this.geminiService.analyzePortfolioRisk(testHoldings, 60.0);
+  }
 
 
 
