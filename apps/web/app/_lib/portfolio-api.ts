@@ -12,7 +12,6 @@ import type {
   RiskScore,
   RiskSnapshot,
   RiskSummary,
-  Wallet,
 } from "./types";
 
 export async function listPortfolios(): Promise<Portfolio[]> {
@@ -39,12 +38,14 @@ export async function createPortfolio(name: string): Promise<Portfolio> {
 
 export async function addHolding(
   portfolioId: string,
-  eventId: string,
-  quantity: number
+  input: { eventId: string; outcome: "YES" | "NO"; quantity: number }
 ): Promise<Holding> {
   const res = await apiFetch<ApiEnvelope<Holding> | Holding>(
     `/portfolio/${portfolioId}/holdings`,
-    { method: "POST", json: { symbol: eventId, quantity } }
+    {
+      method: "POST",
+      json: { symbol: input.eventId, outcome: input.outcome, quantity: input.quantity },
+    }
   );
   return unwrap<Holding>(res);
 }
@@ -131,11 +132,6 @@ export async function getEvent(eventId: string): Promise<BayseEvent> {
     { auth: false }
   );
   return unwrap<BayseEvent>(res);
-}
-
-export async function getWallet(): Promise<Wallet> {
-  const res = await apiFetch<ApiEnvelope<Wallet> | Wallet>("/bayse/wallet");
-  return unwrap<Wallet>(res);
 }
 
 function unwrap<T>(res: ApiEnvelope<T> | T): T {

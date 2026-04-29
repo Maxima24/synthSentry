@@ -18,7 +18,6 @@ import {
   getPortfolio,
   getRiskHistory,
   getRiskSummary,
-  getWallet,
   listPortfolios,
   searchEvents,
   setAlertThreshold,
@@ -32,7 +31,6 @@ import type {
   Portfolio,
   RiskSnapshot,
   RiskSummary,
-  Wallet,
 } from "./types";
 
 export const qk = {
@@ -45,7 +43,6 @@ export const qk = {
   marketTrends: (limit: number) => ["market", "trends", limit] as const,
   event: (eventId: string) => ["event", eventId] as const,
   search: (q: string) => ["search", q] as const,
-  wallet: ["wallet"] as const,
 };
 
 const STALE = {
@@ -58,7 +55,6 @@ const STALE = {
   marketTrends: 30_000,
   event: 30_000,
   search: 2 * 60_000,
-  wallet: 60_000,
 };
 
 export function useMe(
@@ -145,15 +141,6 @@ export function useEventSearch(query: string) {
   });
 }
 
-export function useWallet() {
-  return useQuery<Wallet>({
-    queryKey: qk.wallet,
-    queryFn: getWallet,
-    staleTime: STALE.wallet,
-    retry: false,
-  });
-}
-
 export function useCreatePortfolio() {
   const qc = useQueryClient();
   return useMutation({
@@ -167,8 +154,8 @@ export function useCreatePortfolio() {
 export function useAddHolding(portfolioId: string) {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (input: { eventId: string; quantity: number }) =>
-      addHolding(portfolioId, input.eventId, input.quantity),
+    mutationFn: (input: { eventId: string; outcome: "YES" | "NO"; quantity: number }) =>
+      addHolding(portfolioId, input),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: qk.portfolio(portfolioId) });
       qc.invalidateQueries({ queryKey: qk.portfolios });
