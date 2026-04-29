@@ -2,7 +2,7 @@
 
 import { HugeiconsIcon } from "@hugeicons/react";
 import { Add01Icon, Search01Icon } from "@hugeicons/core-free-icons";
-import { useDeferredValue, useState, type FormEvent } from "react";
+import { useDeferredValue, useEffect, useState, type FormEvent } from "react";
 import { BrandLoader } from "../../_components/brand-loader";
 import { useAddHolding, useAssetSearch } from "../../_lib/queries";
 import type { EventSearchResult } from "../../_lib/types";
@@ -25,6 +25,14 @@ export function AddHoldingModal({
   const deferredQuery = useDeferredValue(query);
   const [selected, setSelected] = useState<EventSearchResult | null>(null);
   const [quantity, setQuantity] = useState("");
+  const [outcome, setOutcome] = useState<"YES" | "NO">("YES");
+
+  // Default-select the side with the higher implied probability
+  useEffect(() => {
+    if (selected) {
+      setOutcome(selected.yesPrice >= selected.noPrice ? "YES" : "NO");
+    }
+  }, [selected]);
 
   const {
     data: results = [],
@@ -38,6 +46,7 @@ export function AddHoldingModal({
     setQuery("");
     setSelected(null);
     setQuantity("");
+    setOutcome("YES");
     addHolding.reset();
   }
 
@@ -47,13 +56,26 @@ export function AddHoldingModal({
     if (!selected || !Number.isFinite(qty) || qty <= 0 || addHolding.isPending)
       return;
     try {
-      await addHolding.mutateAsync({ eventId: selected.eventId, quantity: qty });
+      await addHolding.mutateAsync({
+        eventId: selected.eventId,
+        outcome,
+        quantity: qty,
+      });
       reset();
       onClose();
     } catch {
       /* surfaced via mutation state */
     }
   }
+
+  const sidePrice = selected
+    ? outcome === "YES"
+      ? selected.yesPrice
+      : selected.noPrice
+    : 0;
+  const estCost = selected && Number(quantity) > 0
+    ? Number(quantity) * sidePrice
+    : null;
 
   const error = addHolding.error;
 
@@ -159,6 +181,43 @@ export function AddHoldingModal({
           </>
         )}
 
+        {selected ? (
+          <div className="grid grid-cols-2 gap-2">
+            <button
+              type="button"
+              onClick={() => setOutcome("YES")}
+              className={`flex flex-col items-start gap-0.5 rounded-xl border px-4 py-2.5 text-left transition-colors ${
+                outcome === "YES"
+                  ? "border-primary/60 bg-primary/[0.10] text-foreground"
+                  : "border-black/[0.08] bg-white text-foreground/70 hover:bg-black/[0.03]"
+              }`}
+            >
+              <span className="text-[10px] font-semibold uppercase tracking-wider text-foreground/55">
+                Bet YES
+              </span>
+              <span className="text-sm font-semibold tabular-nums">
+                {Math.round(selected.yesPrice * 100)}¢
+              </span>
+            </button>
+            <button
+              type="button"
+              onClick={() => setOutcome("NO")}
+              className={`flex flex-col items-start gap-0.5 rounded-xl border px-4 py-2.5 text-left transition-colors ${
+                outcome === "NO"
+                  ? "border-primary/60 bg-primary/[0.10] text-foreground"
+                  : "border-black/[0.08] bg-white text-foreground/70 hover:bg-black/[0.03]"
+              }`}
+            >
+              <span className="text-[10px] font-semibold uppercase tracking-wider text-foreground/55">
+                Bet NO
+              </span>
+              <span className="text-sm font-semibold tabular-nums">
+                {Math.round(selected.noPrice * 100)}¢
+              </span>
+            </button>
+          </div>
+        ) : null}
+
         <label className="block rounded-xl border border-black/[0.08] bg-white px-4 py-2.5 focus-within:border-foreground/30">
           <span className="block text-[10px] font-medium uppercase tracking-wider text-foreground/50">
             Shares
@@ -173,6 +232,21 @@ export function AddHoldingModal({
             className="mt-0.5 w-full bg-transparent text-sm text-foreground placeholder:text-foreground/30 focus:outline-none"
           />
         </label>
+
+        {estCost !== null ? (
+          <div className="flex items-center justify-between rounded-xl border border-black/[0.06] bg-black/[0.02] px-4 py-2.5 text-xs">
+            <span className="font-medium uppercase tracking-wider text-foreground/55">
+              Est. cost
+            </span>
+            <span className="font-semibold tabular-nums text-foreground">
+              {estCost.toLocaleString(undefined, {
+                style: "currency",
+                currency: "USD",
+                maximumFractionDigits: 2,
+              })}
+            </span>
+          </div>
+        ) : null}
 
         {error ? (
           <p className="rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700">
