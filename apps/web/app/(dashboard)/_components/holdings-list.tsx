@@ -80,19 +80,23 @@ export function HoldingsList({ holdings, portfolioId, onAdd }: HoldingsListProps
                   <div className="truncate text-sm font-semibold text-foreground">
                     {label}
                   </div>
-                  <div className="flex items-center gap-1.5 text-xs text-foreground/50">
+                  <div className="flex items-center gap-1.5 text-xs text-foreground/55">
                     {h.outcome ? (
-                      <span
-                        className={`rounded px-1 py-0.5 text-[9px] font-bold ${
-                          h.outcome === "YES"
-                            ? "bg-primary/20 text-primary-foreground"
-                            : "bg-rose-100 text-rose-700"
-                        }`}
-                      >
+                      <span className="rounded bg-black/[0.05] px-1 py-0.5 text-[9px] font-bold text-foreground/70">
                         {h.outcome}
                       </span>
                     ) : null}
-                    {formatQty(h.quantity)} shares
+                    <span>{formatQty(h.quantity)} sh</span>
+                    <span className="tabular-nums">
+                      @ {formatCents(h.entryPrice)}
+                    </span>
+                    {typeof h.currentPrice === "number" ? (
+                      <span className="tabular-nums text-foreground/70">
+                        → {formatCents(h.currentPrice)}
+                      </span>
+                    ) : (
+                      <span className="text-amber-700">— stale</span>
+                    )}
                   </div>
                 </div>
                 {typeof h.currentValue === "number" ? (
@@ -100,16 +104,21 @@ export function HoldingsList({ holdings, portfolioId, onAdd }: HoldingsListProps
                     <span className="text-xs font-semibold text-foreground tabular-nums">
                       {formatUsd(h.currentValue)}
                     </span>
-                    {typeof h.percentageChange === "number" ? (
+                    {typeof h.pnl === "number" && h.costBasis > 0 ? (
                       <span
                         className={`text-[10px] font-medium tabular-nums ${
-                          h.percentageChange >= 0
+                          h.pnl > 0
                             ? "text-emerald-600"
-                            : "text-rose-600"
+                            : h.pnl < 0
+                              ? "text-rose-600"
+                              : "text-foreground/55"
                         }`}
                       >
-                        {h.percentageChange >= 0 ? "+" : ""}
-                        {h.percentageChange.toFixed(2)}%
+                        {h.pnl > 0 ? "+" : ""}
+                        {formatUsd(h.pnl)}
+                        {typeof h.pnlPercent === "number"
+                          ? ` (${h.pnlPercent.toFixed(1)}%)`
+                          : ""}
                       </span>
                     ) : null}
                   </div>
@@ -142,6 +151,10 @@ function formatUsd(n: number): string {
   return n.toLocaleString(undefined, {
     style: "currency",
     currency: "USD",
-    maximumFractionDigits: 0,
+    maximumFractionDigits: 2,
   });
+}
+
+function formatCents(p: number): string {
+  return `${Math.round(p * 100)}¢`;
 }

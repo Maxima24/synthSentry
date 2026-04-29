@@ -158,16 +158,16 @@ export function PortfolioRow({
                         <span className="text-sm font-semibold text-foreground tabular-nums">
                           {formatUsd(h.currentValue)}
                         </span>
-                        {typeof h.percentageChange === "number" ? (
+                        {typeof h.pnlPercent === "number" ? (
                           <span
                             className={`text-[10px] font-medium tabular-nums ${
-                              h.percentageChange >= 0
+                              h.pnlPercent >= 0
                                 ? "text-emerald-600"
                                 : "text-rose-600"
                             }`}
                           >
-                            {h.percentageChange >= 0 ? "+" : ""}
-                            {h.percentageChange.toFixed(2)}%
+                            {h.pnlPercent >= 0 ? "+" : ""}
+                            {h.pnlPercent.toFixed(2)}%
                           </span>
                         ) : null}
                       </div>
