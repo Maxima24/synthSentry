@@ -11,6 +11,7 @@ import {
   addHolding,
   createPortfolio,
   deleteHolding,
+  deletePortfolio,
   evaluateRisk,
   getAllAlerts,
   getEvent,
@@ -147,6 +148,19 @@ export function useCreatePortfolio() {
     mutationFn: (name: string) => createPortfolio(name),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: qk.portfolios });
+    },
+  });
+}
+
+export function useDeletePortfolio() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (portfolioId: string) => deletePortfolio(portfolioId),
+    onSuccess: (_data, portfolioId) => {
+      qc.invalidateQueries({ queryKey: qk.portfolios });
+      qc.removeQueries({ queryKey: qk.portfolio(portfolioId) });
+      qc.removeQueries({ queryKey: qk.riskSummary(portfolioId) });
+      qc.removeQueries({ queryKey: qk.riskHistory(portfolioId) });
     },
   });
 }

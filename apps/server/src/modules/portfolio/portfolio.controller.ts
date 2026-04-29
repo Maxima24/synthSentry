@@ -193,6 +193,18 @@ export class PortfolioController {
   }
 
   /**
+   * Delete a portfolio (cascades to holdings).
+   */
+  @Delete(':id')
+  @ApiOperation({ summary: 'Delete a portfolio' })
+  @ApiParam({ name: 'id', example: 'a1b2c3d4-e5f6-7890-abcd-ef1234567890' })
+  @ApiResponse({ status: 200, description: 'Portfolio deleted' })
+  @ApiResponse({ status: 404, description: 'Portfolio not found' })
+  deletePortfolio(@Request() req, @Param('id') id: string) {
+    return this.portfolioService.deletePortfolio(req.user.id, id);
+  }
+
+  /**
    * Remove a holding from a portfolio
    */
   @Delete('holdings/:holdingId')

@@ -36,6 +36,10 @@ export async function createPortfolio(name: string): Promise<Portfolio> {
   return unwrap<Portfolio>(res);
 }
 
+export async function deletePortfolio(portfolioId: string): Promise<void> {
+  await apiFetch<unknown>(`/portfolio/${portfolioId}`, { method: "DELETE" });
+}
+
 export async function addHolding(
   portfolioId: string,
   input: { eventId: string; outcome: "YES" | "NO"; quantity: number }

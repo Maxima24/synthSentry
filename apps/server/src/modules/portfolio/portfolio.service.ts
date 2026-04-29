@@ -96,6 +96,16 @@ export class PortfolioService {
     });
   }
 
+  async deletePortfolio(userId: string, portfolioId: string) {
+    const portfolio = await this.db.portfolio.findFirst({
+      where: { id: portfolioId, userId },
+    });
+    if (!portfolio) throw new NotFoundException('Portfolio not found');
+
+    // Holdings cascade via the schema's onDelete: Cascade
+    return this.db.portfolio.delete({ where: { id: portfolioId } });
+  }
+
   async findHoldingForUser(userId: string, holdingId: string) {
     return this.db.holdings.findFirst({
       where: {

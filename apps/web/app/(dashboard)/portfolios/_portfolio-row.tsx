@@ -3,18 +3,21 @@
 import { HugeiconsIcon } from "@hugeicons/react";
 import {
   Add01Icon,
+  Alert02Icon,
   ArrowDown01Icon,
   Delete02Icon,
   PieChart09Icon,
   SparklesIcon,
 } from "@hugeicons/core-free-icons";
+import { useState } from "react";
 import { BrandLoader } from "../../_components/brand-loader";
 import {
   useDeleteHolding,
+  useDeletePortfolio,
   useEvaluateRisk,
   usePortfolio,
 } from "../../_lib/queries";
-import type { Portfolio } from "../../_lib/types";
+import type { Portfolio, RiskLevel } from "../../_lib/types";
 
 interface PortfolioRowProps {
   portfolio: Portfolio;
@@ -33,6 +36,8 @@ export function PortfolioRow({
   const detail = detailQuery.data ?? portfolio;
   const evaluate = useEvaluateRisk(portfolio.id);
   const deleteHolding = useDeleteHolding(portfolio.id);
+  const deletePortfolio = useDeletePortfolio();
+  const [confirmDelete, setConfirmDelete] = useState(false);
 
   return (
     <li className="overflow-hidden rounded-card border border-black/[0.05] bg-white shadow-[0_8px_30px_rgba(0,0,0,0.04)] transition-shadow hover:shadow-[0_12px_40px_rgba(0,0,0,0.06)]">
@@ -103,7 +108,111 @@ export function PortfolioRow({
                   : "Evaluation failed"}
               </span>
             ) : null}
+
+            <div className="ml-auto flex items-center gap-2">
+              {confirmDelete ? (
+                <>
+                  <span className="text-xs text-rose-700">Delete this portfolio?</span>
+                  <button
+                    type="button"
+                    onClick={() => deletePortfolio.mutate(portfolio.id)}
+                    disabled={deletePortfolio.isPending}
+                    className="inline-flex cursor-pointer items-center gap-1.5 rounded-full bg-rose-600 px-3 py-1.5 text-xs font-semibold text-white transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-60"
+                  >
+                    {deletePortfolio.isPending ? "Deleting…" : "Yes, delete"}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setConfirmDelete(false)}
+                    disabled={deletePortfolio.isPending}
+                    className="inline-flex cursor-pointer items-center rounded-full border border-black/[0.08] bg-white px-3 py-1.5 text-xs font-semibold text-foreground transition-colors hover:bg-black/[0.03]"
+                  >
+                    Cancel
+                  </button>
+                </>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => setConfirmDelete(true)}
+                  className="inline-flex cursor-pointer items-center gap-1.5 rounded-full border border-rose-200 bg-white px-3 py-1.5 text-xs font-semibold text-rose-700 transition-colors hover:bg-rose-50"
+                >
+                  <HugeiconsIcon icon={Delete02Icon} className="size-3.5" />
+                  Delete portfolio
+                </button>
+              )}
+            </div>
           </div>
+
+          {evaluate.data ? (
+            <div className="mb-4 rounded-xl border border-black/[0.06] bg-white p-4">
+              <div className="flex items-start gap-4">
+                <div
+                  className={`flex size-14 shrink-0 flex-col items-center justify-center rounded-xl ${
+                    riskTone(evaluate.data.riskLevel).bg
+                  }`}
+                >
+                  <span className={`font-display text-lg font-bold tabular-nums ${riskTone(evaluate.data.riskLevel).text}`}>
+                    {evaluate.data.overallScore}
+                  </span>
+                  <span className={`text-[9px] font-semibold uppercase tracking-wider ${riskTone(evaluate.data.riskLevel).text}`}>
+                    {evaluate.data.riskLevel}
+                  </span>
+                </div>
+                <div className="min-w-0 flex-1">
+                  <div className="text-[10px] font-semibold uppercase tracking-wider text-foreground/55">
+                    AI risk score
+                  </div>
+                  <p className="mt-1 text-sm leading-relaxed text-foreground/80">
+                    {evaluate.data.explanation}
+                  </p>
+                </div>
+              </div>
+
+              {evaluate.data.anomalies && evaluate.data.anomalies.length > 0 ? (
+                <div className="mt-3 rounded-lg border border-amber-200/80 bg-amber-50 p-3">
+                  <div className="flex items-center gap-1.5">
+                    <HugeiconsIcon icon={Alert02Icon} className="size-3.5 text-amber-700" />
+                    <span className="text-[10px] font-semibold uppercase tracking-wider text-amber-700">
+                      Anomalies detected
+                    </span>
+                  </div>
+                  <div className="mt-1.5 flex flex-wrap gap-1.5">
+                    {evaluate.data.anomalies.map((a, i) => (
+                      <span
+                        key={i}
+                        className="rounded-full bg-amber-100 px-2 py-0.5 text-[11px] font-medium text-amber-800"
+                      >
+                        {a}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              ) : null}
+
+              {evaluate.data.reasoningPath && evaluate.data.reasoningPath.length > 0 ? (
+                <div className="mt-3">
+                  <div className="text-[10px] font-semibold uppercase tracking-wider text-foreground/55">
+                    Reasoning path
+                  </div>
+                  <ol className="mt-1.5 flex flex-col gap-1.5">
+                    {evaluate.data.reasoningPath.slice(0, 5).map((text, i) => (
+                      <li
+                        key={i}
+                        className="flex items-start gap-2 rounded-lg border border-black/[0.04] bg-black/[0.015] px-2.5 py-1.5"
+                      >
+                        <span className="mt-0.5 flex size-4 shrink-0 items-center justify-center rounded-full bg-foreground/10 text-[9px] font-bold tabular-nums text-foreground/70">
+                          {i + 1}
+                        </span>
+                        <span className="text-xs leading-relaxed text-foreground/75">
+                          {text}
+                        </span>
+                      </li>
+                    ))}
+                  </ol>
+                </div>
+              ) : null}
+            </div>
+          ) : null}
 
           {detailQuery.isLoading ? (
             <div className="flex items-center gap-3 rounded-xl border border-dashed border-black/[0.08] bg-white px-4 py-6 text-sm text-foreground/55">
@@ -225,4 +334,18 @@ function formatDate(iso: string): string {
     day: "numeric",
     year: "numeric",
   });
+}
+
+function riskTone(level: RiskLevel | undefined): { bg: string; text: string } {
+  switch (level) {
+    case "critical":
+      return { bg: "bg-rose-100", text: "text-rose-700" };
+    case "high":
+      return { bg: "bg-amber-100", text: "text-amber-800" };
+    case "medium":
+      return { bg: "bg-yellow-100", text: "text-yellow-800" };
+    case "low":
+    default:
+      return { bg: "bg-emerald-100", text: "text-emerald-700" };
+  }
 }
