@@ -25,15 +25,19 @@ export type Outcome = "YES" | "NO";
 
 export interface Holding {
   id: string;
-  symbol: string;
-  eventTitle?: string;
-  outcome?: Outcome;
-  quantity: number | string;
-  currentPrice?: number;
-  currentValue?: number;
-  percentageChange?: number;
-  payoutIfWins?: number;
-  isLive?: boolean;
+  symbol: string;          // Bayse eventId
+  eventTitle: string;
+  outcome: Outcome;
+  quantity: number;
+  entryPrice: number;
+  currentPrice: number | null;
+  currentValue: number | null;
+  costBasis: number;
+  pnl: number | null;
+  pnlPercent: number | null;
+  payoutIfWins: number;
+  isLive: boolean;
+  isStale: boolean;
   portfolioId?: string;
   createdAt?: string;
   updatedAt?: string;
@@ -48,8 +52,8 @@ export interface Portfolio {
   holdings?: Holding[];
   totalValue?: number;
   totalCost?: number;
-  totalPercentageChange?: number;
-  wallet?: { usd: number; ngn: number };
+  totalPnl?: number;
+  totalPnlPercent?: number;
   openPositions?: number;
   lastUpdated?: string;
 }
@@ -86,8 +90,6 @@ export interface PortfolioSummaryField {
   totalValue: number;
   totalCost?: number;
   totalPercentageChange?: number;
-  walletUsd?: number;
-  walletNgn?: number;
   openPositions?: number;
 }
 
@@ -179,17 +181,3 @@ export interface BayseEvent {
   markets?: EventMarketOutcome[];
 }
 
-export interface WalletAsset {
-  symbol: string;
-  availableBalance: number;
-  pendingBalance: number;
-  isDefault: boolean;
-  depositActive: boolean;
-  withdrawalActive: boolean;
-}
-
-export interface Wallet {
-  assets: WalletAsset[];
-  totalUsd: number;
-  totalNgn: number;
-}
